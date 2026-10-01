@@ -3,9 +3,8 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Controlador del jugador. Maneja el movimiento y sincroniza el ID
-/// de color de cada jugador.
-/// Se coloca en el Player Prefab, junto con NetworkObject y NetworkTransform.
+/// Controlador del jugador. Movimiento cinemático por física,
+/// color propio y colocación en esquinas del suelo.
 /// </summary>
 public class PlayerController : NetworkBehaviour
 {
@@ -17,9 +16,16 @@ public class PlayerController : NetworkBehaviour
         NetworkVariableWritePermission.Owner
     );
 
+    private Rigidbody rb;
+    private float inputH;
+    private float inputV;
+
     public override void OnNetworkSpawn()
     {
-        Debug.Log($"[Player] OnNetworkSpawn. OwnerClientId={OwnerClientId}, IsOwner={IsOwner}");
+        rb = GetComponent<Rigidbody>();
+
+        if (rb == null)
+            Debug.LogWarning("[Player] Falta Rigidbody en el prefab.");
 
         ColorId.OnValueChanged += AlCambiarColorId;
 
@@ -27,15 +33,12 @@ public class PlayerController : NetworkBehaviour
         {
             byte id = (byte)(OwnerClientId % (ulong)PlayerPalette.CantidadJugadores + 1);
             ColorId.Value = id;
-            Debug.Log($"[Player] Asignado ColorId={id}");
         }
 
         AplicarColor(ColorId.Value);
 
-        // ❗ El Teleport no se puede llamar dentro de OnNetworkSpawn porque
-        //    el NetworkTransform aún no terminó de inicializarse y da
-        //    "Teleporting on non-authoritative side is not allowed!".
-        //    Lo diferimos un frame con una corrutina.
+        // Colocación diferida un frame para que el NetworkTransform
+        // esté inicializado y acepte el Teleport.
         StartCoroutine(ColocarEnSalaEsperaDiferido());
 
         if (GameManager.Instance != null)
@@ -52,20 +55,31 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.W))
-        {
-            Debug.Log($"[Input] W pulsada. IsOwner={IsOwner}, " +
-                      $"estado={GameManager.Instance?.EstadoActual.Value}");
-        }
+        if (!IsOwner) { inputH = 0f; inputV = 0f; return; }
 
+        if (GameManager.Instance == null ||
+            GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
+        { inputH = 0f; inputV = 0f; return; }
+
+        inputH = Input.GetAxis("Horizontal");
+        inputV = Input.GetAxis("Vertical");
+    }
+
+    private void FixedUpdate()
+    {
         if (!IsOwner) return;
-        if (GameManager.Instance == null) return;
-        if (GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
+        if (GameManager.Instance == null ||
+            GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
+            return;
 
-        float h = Input.GetAxis("Horizontal");
-        float v = Input.GetAxis("Vertical");
-        Vector3 mov = new Vector3(h, 0, v) * velocidadMovimiento * Time.deltaTime;
-        transform.Translate(mov, Space.World);
+        if (rb == null) return;
+
+        // Dirección normalizada para que las diagonales no vayan más rápido.
+        Vector3 direccion = new Vector3(inputH, 0f, inputV).normalized;
+
+        // MovePosition con Rigidbody dinámico respeta colliders estáticos.
+        // El NetworkTransform replica el resultado.
+        rb.MovePosition(rb.position + direccion * velocidadMovimiento * Time.fixedDeltaTime);
     }
 
     private void AlCambiarColorId(byte viejo, byte nuevo) => AplicarColor(nuevo);
@@ -84,53 +98,84 @@ public class PlayerController : NetworkBehaviour
     }
 
     // -------------------------------------------------------------------
-    // COLOCACIÓN CON TELETRANSPORTE
+    // COLOCACIÓN
     // -------------------------------------------------------------------
 
-    /// <summary>
-    /// Corrutina que espera un frame antes de colocar al jugador en la
-    /// sala de espera. Sin esta espera, el NetworkTransform puede no
-    /// estar listo y rechazar la llamada a Teleport.
-    /// </summary>
     private IEnumerator ColocarEnSalaEsperaDiferido()
     {
-        // Esperamos a que termine el frame de spawn.
-        yield return null;
+        // Esperar a que SueloController exista Y tenga los bounds calculados.
+        // Timeout de 5 segundos para no quedarnos colgados si algo falla.
+        float timeout = 5f;
+        float t = 0f;
+
+        while (t < timeout)
+        {
+            if (SueloController.Instance != null &&
+                SueloController.Instance.BoundsListos)
+            {
+                break;
+            }
+
+            t += Time.deltaTime;
+            yield return null;
+        }
+
+        if (t >= timeout)
+            Debug.LogWarning("[Player] Timeout esperando bounds del SueloController. " +
+                             "Usando fallback.");
 
         ColocarEnSalaEspera();
     }
 
     private void ColocarEnSalaEspera()
     {
-        float separacion = 2f;
-        float x = (OwnerClientId - 3.5f) * separacion;
-        Vector3 destino = new Vector3(x, 1f, -5f);
+        // Cada jugador aparece en su esquina apenas se conecta.
+        Vector3 destino = ObtenerPosicionInicial();
         MoverConTeleport(destino);
     }
 
     private void ColocarEnSpawnDeJuego()
     {
-        float separacion = 1.5f;
-        float x = (OwnerClientId - 1.5f) * separacion;
-        Vector3 destino = new Vector3(x, 1f, -3f);
+        // Al empezar la partida, se reposicionan por si algo los movió.
+        Vector3 destino = ObtenerPosicionInicial();
         MoverConTeleport(destino);
     }
 
     /// <summary>
-    /// Mueve al jugador usando NetworkTransform.Teleport si está disponible
-    /// y SOMOS el lado autoritativo. Si no, cae a transform.position.
-    /// Además desactiva el Collider durante el salto para no disparar
-    /// triggers de tiles intermedias.
+    /// Calcula la posición inicial del jugador según su ClientId.
+    /// Usa SueloController si está disponible, o un fallback simple.
     /// </summary>
+    private Vector3 ObtenerPosicionInicial()
+    {
+        if (SueloController.Instance != null)
+        {
+            Vector3 pos = SueloController.Instance.ObtenerPosicionSpawn((int)OwnerClientId);
+            Debug.Log($"[Player] ClientId={OwnerClientId} → " +
+                      $"boundsListos={SueloController.Instance.BoundsListos} → pos={pos}");
+            return pos;
+        }
+
+        Debug.Log($"[Player] ClientId={OwnerClientId} → FALLBACK (SueloController.Instance es null)");
+        float x = (OwnerClientId - 1.5f) * 1.5f;
+        return new Vector3(x, 1.05f, -3f);
+    }
+
     private void MoverConTeleport(Vector3 destino)
     {
-        // Desactivamos el collider durante el salto.
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
 
-        bool movido = false;
+        // 1) Movemos el Rigidbody. Con Rigidbody dinámico, esta es la
+        //    fuente de verdad de la posición.
+        if (rb != null)
+            rb.position = destino;
 
-        // Solo el owner puede llamar Teleport sobre su propio NetworkTransform.
+        // 2) Movemos también el transform, para que NetworkTransform
+        //    vea la nueva posición inmediatamente.
+        transform.position = destino;
+        transform.rotation = Quaternion.identity;
+
+        // 3) Avisamos al NetworkTransform del salto para que no interpole.
         if (IsOwner)
         {
             var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
@@ -139,24 +184,14 @@ public class PlayerController : NetworkBehaviour
                 try
                 {
                     nt.Teleport(destino, Quaternion.identity, transform.localScale);
-                    movido = true;
                 }
                 catch (System.Exception e)
                 {
-                    // Si NGO aún no permite el Teleport, caemos al fallback.
-                    Debug.LogWarning($"[Player] Teleport falló, usando fallback: {e.Message}");
+                    Debug.LogWarning($"[Player] Teleport falló: {e.Message}");
                 }
             }
         }
 
-        // Fallback: mover directo con transform.position.
-        if (!movido)
-        {
-            transform.position = destino;
-            transform.rotation = Quaternion.identity;
-        }
-
-        // Reactivamos el collider en el siguiente frame.
         StartCoroutine(ReactivarCollider(col));
     }
 
