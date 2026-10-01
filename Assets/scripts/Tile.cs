@@ -2,49 +2,45 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Una baldosa individual. NO es un NetworkObject.
-/// Solo existe localmente y el GameManager sincroniza su estado.
+/// Baldosa individual. Es un GameObject local, NO un NetworkObject.
+/// El tilemap la instancia en la escena. El SueloController le asigna
+/// el índice al arrancar y sincroniza su color por red.
 /// </summary>
 public class Tile : MonoBehaviour
 {
-    // Índice dentro del grid. Lo asigna el GameManager al generar.
-    public int Indice;
+    [HideInInspector] // No la toques a mano, la asigna el SueloController.
+    public int Indice = -1;
 
-    private Renderer renderBaldosa;
+    private Renderer render;
+    private Material materialInstancia;
 
     private void Awake()
     {
-        renderBaldosa = GetComponent<Renderer>();
+        render = GetComponent<Renderer>();
+        if (render != null) materialInstancia = render.material;
+
+        // Aseguramos que el collider sea trigger.
+        var col = GetComponent<Collider>();
+        if (col != null) col.isTrigger = true;
     }
 
-    /// <summary>
-    /// Cambia el color de la baldosa. Lo llama el GameManager
-    /// cuando llega un evento de red.
-    /// </summary>
     public void EstablecerColor(Color32 color)
     {
-        renderBaldosa.material.color = color;
+        if (materialInstancia != null)
+            materialInstancia.color = color;
     }
 
-    /// <summary>
-    /// Detección de entrada del jugador. Solo el servidor procesa esto.
-    /// </summary>
     private void OnTriggerEnter(Collider otro)
     {
-        // Los clientes ignoran. Solo el servidor decide.
+        // Solo el servidor procesa. Los clientes ignoran.
         if (!NetworkManager.Singleton.IsServer) return;
-
-        // Solo tiene sentido pisar cuando la partida está en curso.
+        if (SueloController.Instance == null) return;
         if (GameManager.Instance == null) return;
         if (GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
 
-        // Comprobamos que lo que entró es un jugador.
-        // Preferimos componente antes que Tag para no depender de config.
         var jugador = otro.GetComponent<PlayerController>();
         if (jugador == null) return;
 
-        // Avisamos al GameManager. Él escribirá en la NetworkList,
-        // que se sincronizará automáticamente con todos los clientes.
-        GameManager.Instance.EstablecerColorBaldosa(Indice, jugador.ColorId.Value);
+        SueloController.Instance.EstablecerColorBaldosa(Indice, jugador.ColorId.Value);
     }
 }

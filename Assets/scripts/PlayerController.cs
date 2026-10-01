@@ -1,3 +1,4 @@
+using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -10,7 +11,6 @@ public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float velocidadMovimiento = 8f;
 
-    // ID de color del jugador. Solo el Owner escribe, todos leen.
     public NetworkVariable<byte> ColorId = new NetworkVariable<byte>(
         0,
         NetworkVariableReadPermission.Everyone,
@@ -21,36 +21,29 @@ public class PlayerController : NetworkBehaviour
     {
         Debug.Log($"[Player] OnNetworkSpawn. OwnerClientId={OwnerClientId}, IsOwner={IsOwner}");
 
-        // Suscribimos el listener ANTES de asignar el valor, para no perder
-        // el primer cambio que hará el owner.
         ColorId.OnValueChanged += AlCambiarColorId;
 
-        // Solo el dueño decide su propio ID.
         if (IsOwner)
         {
-            // OwnerClientId empieza en 0. Sumamos 1 porque el 0 está
-            // reservado para "baldosa sin pisar". El módulo es una red
-            // de seguridad si algún día hay más jugadores que colores.
             byte id = (byte)(OwnerClientId % (ulong)PlayerPalette.CantidadJugadores + 1);
             ColorId.Value = id;
+            Debug.Log($"[Player] Asignado ColorId={id}");
         }
 
-        // Aplicamos el color actual de una vez. Si somos el owner,
-        // ya tiene el ID correcto. Si no, será 0 y se corregirá
-        // automáticamente cuando llegue la sincronización.
         AplicarColor(ColorId.Value);
 
-        // Posición inicial en la sala de espera.
-        ColocarEnSalaEspera();
+        // ❗ El Teleport no se puede llamar dentro de OnNetworkSpawn porque
+        //    el NetworkTransform aún no terminó de inicializarse y da
+        //    "Teleporting on non-authoritative side is not allowed!".
+        //    Lo diferimos un frame con una corrutina.
+        StartCoroutine(ColocarEnSalaEsperaDiferido());
 
-        // Suscripción al cambio de estado de la partida.
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged += AlCambiarEstado;
     }
 
     public override void OnNetworkDespawn()
     {
-        // Limpiamos todos los listeners para evitar fugas de memoria.
         ColorId.OnValueChanged -= AlCambiarColorId;
 
         if (GameManager.Instance != null)
@@ -59,17 +52,13 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        // LOG TEMPORAL de diagnóstico. Bórralo cuando todo funcione.
         if (Input.GetKeyDown(KeyCode.W))
         {
             Debug.Log($"[Input] W pulsada. IsOwner={IsOwner}, " +
                       $"estado={GameManager.Instance?.EstadoActual.Value}");
         }
 
-        // Solo el dueño mueve su propio personaje.
         if (!IsOwner) return;
-
-        // Solo se mueve si la partida empezó.
         if (GameManager.Instance == null) return;
         if (GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
 
@@ -79,18 +68,8 @@ public class PlayerController : NetworkBehaviour
         transform.Translate(mov, Space.World);
     }
 
-    /// <summary>
-    /// Se ejecuta cuando el ColorId cambia por sincronización de red.
-    /// Así todos los clientes ven el color correcto, no solo el owner.
-    /// </summary>
-    private void AlCambiarColorId(byte viejo, byte nuevo)
-    {
-        AplicarColor(nuevo);
-    }
+    private void AlCambiarColorId(byte viejo, byte nuevo) => AplicarColor(nuevo);
 
-    /// <summary>
-    /// Aplica el color del ID al Renderer del jugador.
-    /// </summary>
     private void AplicarColor(byte id)
     {
         var render = GetComponent<Renderer>();
@@ -98,41 +77,92 @@ public class PlayerController : NetworkBehaviour
             render.material.color = PlayerPalette.Obtener(id);
     }
 
-    /// <summary>
-    /// Se ejecuta cuando el estado del juego cambia.
-    /// Cuando pasamos a EnJuego, teletransportamos al jugador dentro del grid.
-    /// </summary>
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
         if (nuevo == GameState.EnJuego)
             ColocarEnSpawnDeJuego();
     }
 
+    // -------------------------------------------------------------------
+    // COLOCACIÓN CON TELETRANSPORTE
+    // -------------------------------------------------------------------
+
     /// <summary>
-    /// Coloca al jugador en la fila de espera antes de empezar la partida.
+    /// Corrutina que espera un frame antes de colocar al jugador en la
+    /// sala de espera. Sin esta espera, el NetworkTransform puede no
+    /// estar listo y rechazar la llamada a Teleport.
     /// </summary>
+    private IEnumerator ColocarEnSalaEsperaDiferido()
+    {
+        // Esperamos a que termine el frame de spawn.
+        yield return null;
+
+        ColocarEnSalaEspera();
+    }
+
     private void ColocarEnSalaEspera()
     {
         float separacion = 2f;
         float x = (OwnerClientId - 3.5f) * separacion;
-        float y = 1f;   // base de la cápsula apoyada en el suelo
-        float z = -5f;  // dentro del campo de visión de la cámara
-
-        transform.position = new Vector3(x, y, z);
-        transform.rotation = Quaternion.identity;
+        Vector3 destino = new Vector3(x, 1f, -5f);
+        MoverConTeleport(destino);
     }
 
-    /// <summary>
-    /// Coloca al jugador dentro del grid cuando empieza la partida.
-    /// </summary>
     private void ColocarEnSpawnDeJuego()
     {
         float separacion = 1.5f;
         float x = (OwnerClientId - 1.5f) * separacion;
-        float y = 1f;
-        float z = -3f;
+        Vector3 destino = new Vector3(x, 1f, -3f);
+        MoverConTeleport(destino);
+    }
 
-        transform.position = new Vector3(x, y, z);
-        transform.rotation = Quaternion.identity;
+    /// <summary>
+    /// Mueve al jugador usando NetworkTransform.Teleport si está disponible
+    /// y SOMOS el lado autoritativo. Si no, cae a transform.position.
+    /// Además desactiva el Collider durante el salto para no disparar
+    /// triggers de tiles intermedias.
+    /// </summary>
+    private void MoverConTeleport(Vector3 destino)
+    {
+        // Desactivamos el collider durante el salto.
+        var col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
+
+        bool movido = false;
+
+        // Solo el owner puede llamar Teleport sobre su propio NetworkTransform.
+        if (IsOwner)
+        {
+            var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+            if (nt != null)
+            {
+                try
+                {
+                    nt.Teleport(destino, Quaternion.identity, transform.localScale);
+                    movido = true;
+                }
+                catch (System.Exception e)
+                {
+                    // Si NGO aún no permite el Teleport, caemos al fallback.
+                    Debug.LogWarning($"[Player] Teleport falló, usando fallback: {e.Message}");
+                }
+            }
+        }
+
+        // Fallback: mover directo con transform.position.
+        if (!movido)
+        {
+            transform.position = destino;
+            transform.rotation = Quaternion.identity;
+        }
+
+        // Reactivamos el collider en el siguiente frame.
+        StartCoroutine(ReactivarCollider(col));
+    }
+
+    private IEnumerator ReactivarCollider(Collider col)
+    {
+        yield return null;
+        if (col != null) col.enabled = true;
     }
 }
