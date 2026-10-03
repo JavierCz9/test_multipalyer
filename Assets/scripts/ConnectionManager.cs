@@ -1,46 +1,136 @@
+using System;
 using Unity.Netcode;
+using Unity.Services.Authentication;
+using Unity.Services.Core;
+using Unity.Services.Multiplayer;
 using UnityEngine;
+using TMPro;
 
-/// <summary>
-/// Gestiona cómo arranca la partida (Host o Client) y controla el acceso
-/// rechazando conexiones nuevas cuando la partida ya comenzó.
-/// También permite al Host empezar la partida con la tecla P.
-/// NO tiene lógica de juego: esa vive en GameManager.
-/// </summary>
 public class ConnectionManager : MonoBehaviour
 {
-    // Capacidad máxima de jugadores. Puedes subirlo cuando añadas
-    // más colores a la paleta (PlayerPalette).
-    private const int MaxJugadoresPermitidos = 8;
+    private const int MaxJugadoresPermitidos = 2;
 
     private NetworkManager networkManager;
 
-    private void Awake()
+    // =========================================================
+    // UI
+    // =========================================================
+
+    private GameObject HostButton;
+    private GameObject ClientButton;
+    private GameObject JoinCodeInput;
+    private GameObject JoinCodeText;
+    private GameObject IniciarPartida;
+
+    private TMP_Text HostCodeText;
+
+    // =========================================================
+    // SESSION
+    // =========================================================
+
+    private ISession session;
+
+    private bool buscandoPartida = true;
+    private bool buscandoAhora = false;
+
+    private float tiempoBusqueda = 0f;
+
+    // =========================================================
+    // AWAKE
+    // =========================================================
+
+    private async void Awake()
     {
-        // Referencia al NetworkManager del mismo GameObject.
-        // Por eso este script DEBE estar en el mismo objeto que NetworkManager.
         networkManager = GetComponent<NetworkManager>();
 
-        // Activamos la aprobación de conexión para poder aceptar/rechazar.
-        // Sin esto, NGO aceptaría a cualquiera sin control.
-        networkManager.NetworkConfig.ConnectionApproval = true;
+        // -----------------------------------------------------
+        // BUSCAR AUTOMÁTICAMENTE LOS OBJETOS DE LA UI
+        // -----------------------------------------------------
 
-        // Registramos el callback que se ejecuta en el servidor
-        // cada vez que un cliente intenta conectarse.
-        networkManager.ConnectionApprovalCallback = VerificarConexion;
+        HostButton = GameObject.Find("HostButton");
+        ClientButton = GameObject.Find("ClientButton");
+        JoinCodeInput = GameObject.Find("JoinCodeInput");
+        JoinCodeText = GameObject.Find("JoinCodeText");
+        IniciarPartida = GameObject.Find("IniciarPartida");
+
+        if (JoinCodeText != null)
+        {
+            HostCodeText =
+                JoinCodeText.GetComponentInChildren<TMP_Text>(true);
+        }
+
+        // -----------------------------------------------------
+        // UI INICIAL
+        // -----------------------------------------------------
+
+        MostrarUIInicial();
+
+        // -----------------------------------------------------
+        // UNITY SERVICES
+        // -----------------------------------------------------
+
+        try
+        {
+            await UnityServices.InitializeAsync();
+
+            if (!AuthenticationService.Instance.IsSignedIn)
+            {
+                await AuthenticationService.Instance
+                    .SignInAnonymouslyAsync();
+            }
+
+            Debug.Log("[SESSION] Unity Services inicializados.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError(
+                "[SESSION] Error inicializando Unity Services: " + e
+            );
+        }
+
+        // -----------------------------------------------------
+        // NETWORK
+        // -----------------------------------------------------
+
+        networkManager.NetworkConfig.ConnectionApproval = true;
+        networkManager.ConnectionApprovalCallback =
+            VerificarConexion;
     }
 
-    /// <summary>
-    /// Se ejecuta SOLO en el servidor cuando un cliente intenta conectarse.
-    /// Decide si aceptar o rechazar la conexión.
-    /// </summary>
+    // =========================================================
+    // UI INICIAL
+    // =========================================================
+
+    private void MostrarUIInicial()
+    {
+        // Al arrancar:
+        // CREAR + UNIRSE visibles
+        // INICIAR + CÓDIGO ocultos
+
+        if (HostButton != null)
+            HostButton.SetActive(true);
+
+        if (ClientButton != null)
+            ClientButton.SetActive(true);
+
+        if (JoinCodeInput != null)
+            JoinCodeInput.SetActive(true);
+
+        if (JoinCodeText != null)
+            JoinCodeText.SetActive(false);
+
+        if (IniciarPartida != null)
+            IniciarPartida.SetActive(false);
+    }
+
+    // =========================================================
+    // CONNECTION APPROVAL
+    // =========================================================
+
     private void VerificarConexion(
         NetworkManager.ConnectionApprovalRequest request,
         NetworkManager.ConnectionApprovalResponse response)
     {
-        // Si la partida ya arrancó, rechazamos a quien llega tarde.
-        // GameManager.Instance puede ser null en los primeros ms del
-        // arranque del servidor, por eso el chequeo defensivo.
         if (GameManager.Instance != null &&
             GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
         {
@@ -49,71 +139,253 @@ public class ConnectionManager : MonoBehaviour
             return;
         }
 
-        // Rechazamos si ya estamos al máximo permitido.
-        // ConnectedClientsIds incluye al Host, que cuenta como cliente.
-        if (networkManager.ConnectedClientsIds.Count >= MaxJugadoresPermitidos)
+        if (networkManager.ConnectedClientsIds.Count >=
+            MaxJugadoresPermitidos)
         {
             response.Approved = false;
-            response.Reason = $"Servidor lleno (máx {MaxJugadoresPermitidos})";
+            response.Reason = "Servidor lleno";
             return;
         }
 
-        // Aprobamos la conexión y pedimos que NGO genere el Player Prefab
-        // automáticamente para este cliente. Sin esto, el jugador
-        // entraría a la escena sin personaje.
         response.Approved = true;
         response.CreatePlayerObject = true;
     }
 
-    // ---------------------- MÉTODOS PÚBLICOS ----------------------
-    // Se pueden enganchar a botones de UI cuando la añadamos.
+    // =========================================================
+    // CREAR PARTIDA
+    // =========================================================
 
-    public void IniciarHost() => networkManager.StartHost();
-    public void IniciarCliente() => networkManager.StartClient();
-    public void IniciarServidor() => networkManager.StartServer();
+    public async void CrearPartidaRelay()
+    {
+        if (session != null)
+            return;
 
-    // ---------------------- ATAJOS DE TECLADO ----------------------
-    // Solo para pruebas rápidas en el editor.
-    //
-    //   H = arrancar Host (servidor + cliente local)
-    //   C = arrancar Client (solo cliente)
-    //   P = empezar la partida (solo Host; los clientes la ignoran)
-    //
-    // Cuando tengamos UI, estos atajos se pueden quitar o dejar
-    // como modo desarrollador.
+        try
+        {
+            Debug.Log("[SESSION] Creando partida...");
+
+            var options = new SessionOptions
+            {
+                MaxPlayers = MaxJugadoresPermitidos,
+                Name = "StealIsland"
+            }.WithRelayNetwork();
+
+            session =
+                await MultiplayerService.Instance
+                    .CreateSessionAsync(options);
+
+            Debug.Log(
+                "[SESSION] Partida creada. Código: "
+                + session.Code
+            );
+
+            // -------------------------------------------------
+            // MOSTRAR CÓDIGO
+            // -------------------------------------------------
+
+            if (HostCodeText != null)
+            {
+                HostCodeText.text =
+                    "Código: " + session.Code;
+            }
+
+            // -------------------------------------------------
+            // CAMBIAR UI DEL HOST
+            // -------------------------------------------------
+
+            MostrarUIHost();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError(
+                "[SESSION] Error creando partida: " + e
+            );
+        }
+    }
+
+    // =========================================================
+    // BUSCAR PARTIDA
+    // =========================================================
+
+    private async void BuscarPartida()
+    {
+        if (!buscandoPartida)
+            return;
+
+        if (session != null)
+            return;
+
+        if (buscandoAhora)
+            return;
+
+        buscandoAhora = true;
+
+        try
+        {
+            var resultados =
+                await MultiplayerService.Instance
+                    .QuerySessionsAsync(
+                        new QuerySessionsOptions()
+                    );
+
+            foreach (var partida in resultados.Sessions)
+            {
+                // Solo nos interesa nuestra partida
+                if (partida.Name == "StealIsland")
+                {
+                    // Encontramos una partida disponible
+                    MostrarUICliente();
+
+                    break;
+                }
+            }
+        }
+        catch
+        {
+            // No llenar la consola con errores
+        }
+
+        buscandoAhora = false;
+    }
+
+    // =========================================================
+    // UPDATE
+    // =========================================================
 
     private void Update()
     {
-        // H → arrancar Host.
+        // ATAJO H
         if (Input.GetKeyDown(KeyCode.H))
         {
-            Debug.Log("[ConnectionManager] Iniciando Host...");
-            IniciarHost();
+            CrearPartidaRelay();
         }
 
-        // C → arrancar Client.
-        if (Input.GetKeyDown(KeyCode.C))
+        // Buscar partida cada 2 segundos
+        if (buscandoPartida && session == null)
         {
-            Debug.Log("[ConnectionManager] Iniciando Client...");
-            IniciarCliente();
+            tiempoBusqueda += Time.deltaTime;
+
+            if (tiempoBusqueda >= 2f)
+            {
+                tiempoBusqueda = 0f;
+
+                BuscarPartida();
+            }
+        }
+    }
+
+    // =========================================================
+    // UNIRSE A PARTIDA
+    // =========================================================
+
+    public async void UnirseAPartidaRelay(string codigo)
+    {
+        if (string.IsNullOrWhiteSpace(codigo))
+        {
+            Debug.LogWarning(
+                "[SESSION] Introducí un código."
+            );
+
+            return;
         }
 
-        // P → empezar partida. Solo el Host (servidor) puede dispararlo.
-        // El chequeo de IsServer es doble seguridad: además de que
-        // EmpezarPartida ya filtra por IsServer internamente, aquí
-        // evitamos llamadas inútiles desde clientes.
-        if (Input.GetKeyDown(KeyCode.P) && networkManager.IsServer)
+        if (session != null)
+            return;
+
+        try
         {
-            if (GameManager.Instance != null)
-            {
-                Debug.Log("[ConnectionManager] Empezando partida...");
-                GameManager.Instance.EmpezarPartida();
-            }
-            else
-            {
-                Debug.LogWarning("[ConnectionManager] GameManager.Instance es null. " +
-                                 "¿Falta el objeto GameManager en la escena?");
-            }
+            Debug.Log(
+                "[SESSION] Uniéndose con código: "
+                + codigo
+            );
+
+            session =
+                await MultiplayerService.Instance
+                    .JoinSessionByCodeAsync(codigo);
+
+            Debug.Log(
+                "[SESSION] Unido correctamente."
+            );
+
+            MostrarUICliente();
         }
+        catch (Exception e)
+        {
+            Debug.LogError(
+                "[SESSION] Error uniéndose: " + e
+            );
+        }
+    }
+
+    // =========================================================
+    // UI HOST
+    // =========================================================
+
+    private void MostrarUIHost()
+    {
+        // HOST:
+        //
+        // ❌ CREAR PARTIDA
+        // ❌ UNIRSE A PARTIDA
+        // ❌ INPUT CÓDIGO
+        // ✅ CÓDIGO
+        // ✅ INICIAR PARTIDA
+
+        if (HostButton != null)
+            HostButton.SetActive(false);
+
+        if (ClientButton != null)
+            ClientButton.SetActive(false);
+
+        if (JoinCodeInput != null)
+            JoinCodeInput.SetActive(false);
+
+        if (JoinCodeText != null)
+            JoinCodeText.SetActive(true);
+
+        if (IniciarPartida != null)
+            IniciarPartida.SetActive(true);
+    }
+
+    // =========================================================
+    // UI CLIENTE
+    // =========================================================
+
+    private void MostrarUICliente()
+    {
+        // CLIENTE:
+        //
+        // ❌ CREAR PARTIDA
+        // ❌ INICIAR PARTIDA
+        // ❌ CÓDIGO DEL HOST
+        // ✅ UNIRSE A PARTIDA
+        // ✅ INPUT CÓDIGO
+
+        if (HostButton != null)
+            HostButton.SetActive(false);
+
+        if (IniciarPartida != null)
+            IniciarPartida.SetActive(false);
+
+        if (JoinCodeText != null)
+            JoinCodeText.SetActive(false);
+
+        if (ClientButton != null)
+            ClientButton.SetActive(true);
+
+        if (JoinCodeInput != null)
+            JoinCodeInput.SetActive(true);
+    }
+
+    // =========================================================
+    // BOTÓN UNIRSE
+    // =========================================================
+
+    public void UnirseDesdeUI(TMP_InputField input)
+    {
+        if (input == null)
+            return;
+
+        UnirseAPartidaRelay(input.text);
     }
 }

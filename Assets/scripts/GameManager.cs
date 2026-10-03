@@ -30,4 +30,15 @@ public class GameManager : NetworkBehaviour
         Debug.Log("[GameManager] Empezando partida");
         EstadoActual.Value = GameState.EnJuego;
     }
+
+    private void Update()
+    {
+        if (EstadoActual.Value == GameState.EnJuego)
+        {
+            GameObject canvas = GameObject.Find("Canvas");
+
+            if (canvas != null)
+            canvas.SetActive(false);
+        }
+    }
 }
