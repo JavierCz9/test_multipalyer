@@ -41,6 +41,10 @@ public class Tile : MonoBehaviour
         var jugador = otro.GetComponent<PlayerController>();
         if (jugador == null) return;
 
-        SueloController.Instance.EstablecerColorBaldosa(Indice, jugador.ColorId.Value);
+        SueloController.Instance.EstablecerColorBaldosa(
+            Indice,
+            jugador.ColorId.Value,
+            jugador.OwnerClientId
+        );
     }
 }

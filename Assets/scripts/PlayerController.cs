@@ -74,6 +74,8 @@ public class PlayerController : NetworkBehaviour
 
         if (rb == null) return;
 
+        rb.linearVelocity = Vector3.zero;
+
         // Dirección normalizada para que las diagonales no vayan más rápido.
         Vector3 direccion = new Vector3(inputH, 0f, inputV).normalized;
 
