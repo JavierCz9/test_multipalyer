@@ -1,16 +1,29 @@
 using Unity.Netcode;
 using UnityEngine;
-using System.Collections.Generic;
 
 public enum GameState
 {
     SalaEspera = 0,
-    EnJuego = 1
+    EnJuego = 1,
+    Finalizado = 2
 }
 
 public class GameManager : NetworkBehaviour
 {
     public static GameManager Instance;
+
+    // ============================================================
+    // REFERENCIAS UI
+    // ============================================================
+    // Asignar el Canvas del lobby desde el Inspector.
+    // Evita usar GameObject.Find (que puede agarrar el Canvas equivocado).
+
+    [Header("Referencias UI")]
+    [SerializeField] private GameObject canvasLobby;
+
+    // ============================================================
+    // ESTADO DE PARTIDA
+    // ============================================================
 
     public NetworkVariable<GameState> EstadoActual =
         new NetworkVariable<GameState>(
@@ -30,18 +43,40 @@ public class GameManager : NetworkBehaviour
             NetworkVariableWritePermission.Server
         );
 
-    private const float DURACION_PARTIDA = 120f;
+    private const float DURACION_PARTIDA = 15f;
 
     // ============================================================
-    // BALDOSAS
+    // CONTADORES POR COLORID
     // ============================================================
 
-    private Dictionary<ulong, int> contadoresBaldosas =
-        new Dictionary<ulong, int>();
+    private NetworkList<int> contadoresPorColor;
+
+    public NetworkList<int> ContadoresPorColor => contadoresPorColor;
+
+    // ============================================================
+    // EVENTO DE GANADOR
+    // ============================================================
+
+    public static event System.Action<byte, int> OnGanadorAnunciado;
+
+    // ============================================================
+    // AWAKE / SPAWN
+    // ============================================================
 
     private void Awake()
     {
         Instance = this;
+        contadoresPorColor = new NetworkList<int>();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        if (IsServer)
+        {
+            contadoresPorColor.Clear();
+            for (int i = 0; i <= PlayerPalette.CantidadJugadores; i++)
+                contadoresPorColor.Add(0);
+        }
     }
 
     // ============================================================
@@ -50,16 +85,15 @@ public class GameManager : NetworkBehaviour
 
     public void EmpezarPartida()
     {
-        if (!IsServer)
-            return;
-
-        if (EstadoActual.Value == GameState.EnJuego)
-            return;
+        if (!IsServer) return;
+        if (EstadoActual.Value == GameState.EnJuego) return;
 
         Debug.Log("[GameManager] Empezando partida");
 
-        TiempoRestante.Value = DURACION_PARTIDA;
+        for (int i = 0; i < contadoresPorColor.Count; i++)
+            contadoresPorColor[i] = 0;
 
+        TiempoRestante.Value = DURACION_PARTIDA;
         EstadoActual.Value = GameState.EnJuego;
     }
 
@@ -69,21 +103,20 @@ public class GameManager : NetworkBehaviour
 
     private void Update()
     {
-        if (EstadoActual.Value == GameState.EnJuego)
-        {
-            // Ocultar el menú cuando empieza la partida.
-            GameObject canvas = GameObject.Find("Canvas");
+        // Mostrar u ocultar el Canvas del lobby según el estado.
+        if(canvasLobby != null)
+{
+            // ✅ El Canvas del lobby SOLO se muestra en SalaEspera.
+            // En EnJuego y en Finalizado, está oculto.
+            bool deberiaEstarActivo = (EstadoActual.Value == GameState.SalaEspera);
 
-            if (canvas != null)
-                canvas.SetActive(false);
+            if (canvasLobby.activeSelf != deberiaEstarActivo)
+                canvasLobby.SetActive(deberiaEstarActivo);
         }
 
-        // El timer solamente lo controla el servidor.
-        if (!IsServer)
-            return;
-
-        if (EstadoActual.Value != GameState.EnJuego)
-            return;
+        // Timer (solo servidor).
+        if (!IsServer) return;
+        if (EstadoActual.Value != GameState.EnJuego) return;
 
         if (TiempoRestante.Value > 0f)
         {
@@ -98,88 +131,96 @@ public class GameManager : NetworkBehaviour
     }
 
     // ============================================================
+    // CONTADORES
+    // ============================================================
+
+    public void ActualizarContador(byte colorAnterior, byte colorNuevo)
+    {
+        if (!IsServer) return;
+        if (colorAnterior == colorNuevo) return;
+
+        if (colorAnterior > 0 && colorAnterior < contadoresPorColor.Count)
+        {
+            int valorActual = contadoresPorColor[colorAnterior];
+            contadoresPorColor[colorAnterior] = Mathf.Max(0, valorActual - 1);
+        }
+
+        if (colorNuevo > 0 && colorNuevo < contadoresPorColor.Count)
+        {
+            contadoresPorColor[colorNuevo] = contadoresPorColor[colorNuevo] + 1;
+        }
+    }
+
+    public int ObtenerBaldosas(byte colorId)
+    {
+        if (contadoresPorColor == null) return 0;
+        if (colorId < contadoresPorColor.Count)
+            return contadoresPorColor[colorId];
+        return 0;
+    }
+
+    // ============================================================
     // TERMINAR PARTIDA
     // ============================================================
 
     private void TerminarPartida()
     {
-        if (!IsServer)
-            return;
+        if (!IsServer) return;
+        if (EstadoActual.Value == GameState.Finalizado) return;
 
         Debug.Log("[GameManager] TIEMPO TERMINADO");
 
-        ulong ganador = ulong.MaxValue;
+        byte colorGanador = 0;
         int mayorCantidad = -1;
 
-        foreach (var jugador in contadoresBaldosas)
+        for (int i = 1; i < contadoresPorColor.Count; i++)
         {
-            Debug.Log(
-                $"[GameManager] Player {jugador.Key}: " +
-                $"{jugador.Value} baldosas"
-            );
+            Debug.Log($"[GameManager] Color {i}: {contadoresPorColor[i]} tiles");
 
-            if (jugador.Value > mayorCantidad)
+            if (contadoresPorColor[i] > mayorCantidad)
             {
-                mayorCantidad = jugador.Value;
-                ganador = jugador.Key;
+                mayorCantidad = contadoresPorColor[i];
+                colorGanador = (byte)i;
             }
         }
 
-        if (ganador != ulong.MaxValue)
+        if (mayorCantidad <= 0)
         {
-            Debug.Log(
-                $"[GameManager] GANADOR: Player {ganador} " +
-                $"con {mayorCantidad} baldosas."
-            );
+            colorGanador = 0;
+            mayorCantidad = 0;
         }
 
+        Debug.Log($"[GameManager] GANADOR: color {colorGanador} con {mayorCantidad} tiles");
+
+        EstadoActual.Value = GameState.Finalizado;
+        AnunciarGanadorRpc(colorGanador, mayorCantidad);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void AnunciarGanadorRpc(byte colorGanador, int baldosas)
+    {
+        Debug.Log($"🏆 [GANADOR] Color {colorGanador} con {baldosas} tiles");
+        OnGanadorAnunciado?.Invoke(colorGanador, baldosas);
+    }
+
+    // ============================================================
+    // VOLVER AL LOBBY
+    // ============================================================
+
+    public void VolverAlLobby()
+    {
+        if (!IsServer) return;
+        if (EstadoActual.Value != GameState.Finalizado) return;
+
+        Debug.Log("[GameManager] Volviendo al lobby");
+
+        for (int i = 0; i < contadoresPorColor.Count; i++)
+            contadoresPorColor[i] = 0;
+
+        if (SueloController.Instance != null)
+            SueloController.Instance.ResetearTodasLasTiles();
+
+        TiempoRestante.Value = DURACION_PARTIDA;
         EstadoActual.Value = GameState.SalaEspera;
-    }
-
-    // ============================================================
-    // CONTADOR DE BALDOSAS
-    // ============================================================
-
-    public void SumarBaldosa(ulong clientId)
-    {
-        if (!IsServer)
-            return;
-
-        if (!contadoresBaldosas.ContainsKey(clientId))
-            contadoresBaldosas[clientId] = 0;
-
-        contadoresBaldosas[clientId]++;
-
-        Debug.Log(
-            $"[GameManager] Player {clientId} tiene " +
-            $"{contadoresBaldosas[clientId]} baldosas."
-        );
-    }
-
-    public void RestarBaldosa(ulong clientId)
-    {
-        if (!IsServer)
-            return;
-
-        if (!contadoresBaldosas.ContainsKey(clientId))
-            contadoresBaldosas[clientId] = 0;
-
-        contadoresBaldosas[clientId]--;
-
-        if (contadoresBaldosas[clientId] < 0)
-            contadoresBaldosas[clientId] = 0;
-
-        Debug.Log(
-            $"[GameManager] Player {clientId} tiene " +
-            $"{contadoresBaldosas[clientId]} baldosas."
-        );
-    }
-
-    public int ObtenerBaldosas(ulong clientId)
-    {
-        if (contadoresBaldosas.ContainsKey(clientId))
-            return contadoresBaldosas[clientId];
-
-        return 0;
     }
 }

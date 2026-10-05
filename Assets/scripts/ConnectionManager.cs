@@ -254,11 +254,7 @@ public class ConnectionManager : MonoBehaviour
 
     private void Update()
     {
-        // ATAJO H
-        if (Input.GetKeyDown(KeyCode.H))
-        {
-            CrearPartidaRelay();
-        }
+        
 
         // Buscar partida cada 2 segundos
         if (buscandoPartida && session == null)
