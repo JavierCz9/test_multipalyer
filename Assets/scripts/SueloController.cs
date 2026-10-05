@@ -1,28 +1,28 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
-/// <summary>
-/// Coordina la sincronización de colores de las baldosas y calcula
-/// las posiciones de spawn para cada jugador.
-/// Las baldosas ya están en la escena (colocadas con el tilemap).
-/// Este script las encuentra, les asigna un índice, y sincroniza sus colores.
-/// Es el único NetworkObject relacionado con el suelo.
-/// </summary>
 public class SueloController : NetworkBehaviour
 {
     public static SueloController Instance;
 
-    // Lista sincronizada de IDs de color. Índice = Tile.Indice.
-    private NetworkList<byte> idsColores;
-    public bool BoundsListos => boundsCalculados;
+    [Header("Configuración del grid")]
+    [Tooltip("Tamaño de cada celda en unidades del mundo.")]
+    public float TamBaldosa = 1f;
 
-    // Array local de tiles indexadas. Para lookup rápido al pintar.
+    private NetworkList<byte> idsColores;
     private Tile[] tilesPorIndice;
 
-    // Bounding box calculado desde las tiles reales de la escena.
+    // Diccionario: coordenada de celda → tile (permite huecos).
+    private Dictionary<Vector2Int, Tile> tilesPorCelda
+        = new Dictionary<Vector2Int, Tile>();
+
     private Vector3 minBounds;
     private Vector3 maxBounds;
     private bool boundsCalculados = false;
+    private Vector3 origenGrid;
+
+    public bool BoundsListos => boundsCalculados;
 
     private void Awake()
     {
@@ -32,8 +32,6 @@ public class SueloController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        Debug.Log($"[Suelo] OnNetworkSpawn INICIO. Instance={Instance != null}");
-        // 1) Buscar todas las tiles en la escena.
         var todas = FindObjectsByType<Tile>();
 
         if (todas.Length == 0)
@@ -42,10 +40,8 @@ public class SueloController : NetworkBehaviour
             return;
         }
 
-        // 2) Asignar índices determinísticos por posición (X, luego Z).
         AsignarIndicesPorPosicion(todas);
 
-        // 3) Construir el array indexado.
         int maxIndice = -1;
         foreach (var t in todas)
             if (t.Indice > maxIndice) maxIndice = t.Indice;
@@ -55,10 +51,9 @@ public class SueloController : NetworkBehaviour
             if (t.Indice >= 0 && t.Indice < tilesPorIndice.Length)
                 tilesPorIndice[t.Indice] = t;
 
-        // 4) Calcular el bounding box del suelo (esquinas mín/máx).
         CalcularBounds(todas);
+        ConstruirDiccionarioCeldas(todas);
 
-        // 5) El servidor inicializa la NetworkList con ceros.
         if (IsServer)
         {
             idsColores.Clear();
@@ -66,15 +61,9 @@ public class SueloController : NetworkBehaviour
                 idsColores.Add(0);
         }
 
-        // 6) Suscribir el listener de cambios.
         idsColores.OnListChanged += AlCambiarColor;
 
-        Debug.Log($"[Suelo] {todas.Length} tiles encontradas, " +
-                  $"bounds X[{minBounds.x:F1}, {maxBounds.x:F1}] " +
-                  $"Z[{minBounds.z:F1}, {maxBounds.z:F1}]");
-        Debug.Log($"[Suelo] OnNetworkSpawn terminado. " +
-          $"boundsListos={boundsCalculados}, " +
-          $"minBounds={minBounds}, maxBounds={maxBounds}");
+        Debug.Log($"[Suelo] {todas.Length} tiles encontradas.");
     }
 
     public override void OnNetworkDespawn()
@@ -82,9 +71,6 @@ public class SueloController : NetworkBehaviour
         idsColores.OnListChanged -= AlCambiarColor;
     }
 
-    /// <summary>
-    /// Ordena las tiles por posición y les asigna índices consecutivos.
-    /// </summary>
     private void AsignarIndicesPorPosicion(Tile[] tiles)
     {
         System.Array.Sort(tiles, (a, b) =>
@@ -103,10 +89,6 @@ public class SueloController : NetworkBehaviour
             tiles[i].Indice = i;
     }
 
-    /// <summary>
-    /// Calcula las esquinas del área cubierta por las tiles.
-    /// Se usa para posicionar a los jugadores en las esquinas del suelo.
-    /// </summary>
     private void CalcularBounds(Tile[] tiles)
     {
         if (tiles.Length == 0) return;
@@ -123,54 +105,82 @@ public class SueloController : NetworkBehaviour
             if (p.z > maxBounds.z) maxBounds.z = p.z;
         }
 
+        origenGrid = minBounds;
         boundsCalculados = true;
     }
 
+    private void ConstruirDiccionarioCeldas(Tile[] tiles)
+    {
+        tilesPorCelda.Clear();
+
+        foreach (var t in tiles)
+        {
+            Vector2Int celda = PosicionACelda(t.transform.position);
+            if (!tilesPorCelda.ContainsKey(celda))
+                tilesPorCelda[celda] = t;
+        }
+
+        Debug.Log($"[Suelo] Diccionario con {tilesPorCelda.Count} celdas.");
+    }
+
+    private Vector2Int PosicionACelda(Vector3 pos)
+    {
+        float relX = pos.x - origenGrid.x;
+        float relZ = pos.z - origenGrid.z;
+
+        int x = Mathf.RoundToInt(relX / TamBaldosa);
+        int z = Mathf.RoundToInt(relZ / TamBaldosa);
+
+        return new Vector2Int(x, z);
+    }
+
     /// <summary>
-    /// Devuelve la posición de spawn para un jugador según su índice.
-    /// Los primeros 4 van a las 4 esquinas del grid. Los siguientes 4
-    /// van a los puntos medios de los bordes. Con más de 8 se repiten.
-    /// La Y se fija a 1.05 para que la cápsula quede apoyada sobre el piso.
+    /// Devuelve el índice de la tile que ocupa una posición del mundo.
+    /// -1 si no hay tile en esa celda (hueco).
     /// </summary>
+    public int ObtenerIndiceEnPosicion(Vector3 pos)
+    {
+        if (!boundsCalculados) return -1;
+
+        Vector2Int celda = PosicionACelda(pos);
+
+        if (tilesPorCelda.TryGetValue(celda, out Tile tile))
+            return tile.Indice;
+
+        return -1;
+    }
+
     public Vector3 ObtenerPosicionSpawn(int indice)
     {
         if (!boundsCalculados)
         {
-            // Fallback por si las tiles no se encontraron.
             float xFallback = (indice - 1.5f) * 1.5f;
             return new Vector3(xFallback, 1.05f, -3f);
         }
 
-        // Margen desde el borde para no aparecer dentro de las paredes.
-        // En unidades de mundo.
         float margen = 1.5f;
-
         float minX = minBounds.x + margen;
         float maxX = maxBounds.x - margen;
         float minZ = minBounds.z + margen;
         float maxZ = maxBounds.z - margen;
+        float y = 1.10f;
 
-        float y = 1.05f;
-
-        // 4 esquinas para los primeros 4 jugadores.
-        Vector3[] esquinas = new Vector3[]
+        Vector3[] esquinas =
         {
-            new Vector3(minX, y, minZ),  // 0: suroeste
-            new Vector3(maxX, y, maxZ),  // 1: noreste
-            new Vector3(minX, y, maxZ),  // 2: noroeste
-            new Vector3(maxX, y, minZ),  // 3: sureste
+            new Vector3(minX, y, minZ),
+            new Vector3(maxX, y, maxZ),
+            new Vector3(minX, y, maxZ),
+            new Vector3(maxX, y, minZ)
         };
 
-        if (indice < 4)
-            return esquinas[indice];
+        if (indice < 4) return esquinas[indice];
 
-        // Puntos medios de los bordes para jugadores 4 a 7.
-        Vector3[] medios = new Vector3[]
+        Vector3[] medios =
         {
-            new Vector3((minX + maxX) * 0.5f, y, minZ),  // 4: sur
-            new Vector3((minX + maxX) * 0.5f, y, maxZ),  // 5: norte
-            new Vector3(minX, y, (minZ + maxZ) * 0.5f),  // 6: oeste
-            new Vector3(maxX, y, (minZ + maxZ) * 0.5f),  // 7: este
+            new Vector3((minX + maxX) * 0.5f, y, minZ),
+            new Vector3((minX + maxX) * 0.5f, y, maxZ),
+            new Vector3(minX, y, (minZ + maxZ) * 0.5f),
+            new Vector3(maxX, y, (minZ + maxZ) * 0.5f)
         };
 
         return medios[(indice - 4) % 4];
@@ -182,18 +192,47 @@ public class SueloController : NetworkBehaviour
         if (tilesPorIndice == null) return;
         if (evento.Index < 0 || evento.Index >= tilesPorIndice.Length) return;
 
-        var tile = tilesPorIndice[evento.Index];
-        if (tile != null)
+        Tile tile = tilesPorIndice[evento.Index];
+        if (tile == null) return;
+
+        // ✅ Si el valor es 0, restaurar el color original del prefab.
+        // Si es 1..8, aplicar el color del jugador.
+        if (evento.Value == 0)
+            tile.RestaurarColorOriginal();
+        else
             tile.EstablecerColor(PlayerPalette.Obtener(evento.Value));
     }
 
     /// <summary>
-    /// El servidor llama a esto cuando un jugador pisa una baldosa.
+    /// El servidor llama a esto cuando un jugador pisa una tile.
     /// </summary>
     public void EstablecerColorBaldosa(int indice, byte idColor)
     {
         if (!IsServer) return;
         if (indice < 0 || indice >= idsColores.Count) return;
+
+        byte colorAnterior = idsColores[indice];
+        if (colorAnterior == idColor) return;
+
         idsColores[indice] = idColor;
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.ActualizarContador(colorAnterior, idColor);
+    }
+
+    /// <summary>
+    /// Resetea todas las tiles a su color original.
+    /// Solo el servidor puede llamarlo.
+    /// </summary>
+    public void ResetearTodasLasTiles()
+    {
+        if (!IsServer) return;
+        if (idsColores == null) return;
+
+        // Resetear la lista a 0 (sin dueño).
+        for (int i = 0; i < idsColores.Count; i++)
+            idsColores[i] = 0;
+
+        Debug.Log("[Suelo] Todas las tiles reseteadas a su color original.");
     }
 }

@@ -1,27 +1,29 @@
-using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Baldosa individual. Es un GameObject local, NO un NetworkObject.
-/// El tilemap la instancia en la escena. El SueloController le asigna
-/// el índice al arrancar y sincroniza su color por red.
+/// Baldosa individual. NO es un NetworkObject.
+/// El SueloController le asigna el índice al arrancar.
+/// Guarda su color original para poder restaurarlo al resetear.
 /// </summary>
 public class Tile : MonoBehaviour
 {
-    [HideInInspector] // No la toques a mano, la asigna el SueloController.
+    [HideInInspector]
     public int Indice = -1;
 
     private Renderer render;
     private Material materialInstancia;
 
+    // Color original del prefab, capturado en Awake.
+    private Color colorOriginal;
+
     private void Awake()
     {
         render = GetComponent<Renderer>();
-        if (render != null) materialInstancia = render.material;
-
-        // Aseguramos que el collider sea trigger.
-        var col = GetComponent<Collider>();
-        if (col != null) col.isTrigger = true;
+        if (render != null)
+        {
+            materialInstancia = render.material;
+            colorOriginal = materialInstancia.color;
+        }
     }
 
     public void EstablecerColor(Color32 color)
@@ -30,17 +32,12 @@ public class Tile : MonoBehaviour
             materialInstancia.color = color;
     }
 
-    private void OnTriggerEnter(Collider otro)
+    /// <summary>
+    /// Restaura el color original del prefab.
+    /// </summary>
+    public void RestaurarColorOriginal()
     {
-        // Solo el servidor procesa. Los clientes ignoran.
-        if (!NetworkManager.Singleton.IsServer) return;
-        if (SueloController.Instance == null) return;
-        if (GameManager.Instance == null) return;
-        if (GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
-
-        var jugador = otro.GetComponent<PlayerController>();
-        if (jugador == null) return;
-
-        SueloController.Instance.EstablecerColorBaldosa(Indice, jugador.ColorId.Value);
+        if (materialInstancia != null)
+            materialInstancia.color = colorOriginal;
     }
 }

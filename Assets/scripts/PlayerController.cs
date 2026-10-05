@@ -2,10 +2,6 @@ using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
-/// <summary>
-/// Controlador del jugador. Movimiento cinemático por física,
-/// color propio y colocación en esquinas del suelo.
-/// </summary>
 public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float velocidadMovimiento = 8f;
@@ -19,15 +15,17 @@ public class PlayerController : NetworkBehaviour
     private Rigidbody rb;
     private float inputH;
     private float inputV;
+    private int ultimaCelda = -1;
 
     public override void OnNetworkSpawn()
     {
         rb = GetComponent<Rigidbody>();
 
-        if (rb == null)
-            Debug.LogWarning("[Player] Falta Rigidbody en el prefab.");
+        // Física congelada durante la sala de espera.
+        if (rb != null)
+            rb.isKinematic = true;
 
-        ColorId.OnValueChanged += AlCambiarColorId;
+        ColorId.OnValueChanged += (v, n) => AplicarColor(n);
 
         if (IsOwner)
         {
@@ -37,8 +35,6 @@ public class PlayerController : NetworkBehaviour
 
         AplicarColor(ColorId.Value);
 
-        // Colocación diferida un frame para que el NetworkTransform
-        // esté inicializado y acepte el Teleport.
         StartCoroutine(ColocarEnSalaEsperaDiferido());
 
         if (GameManager.Instance != null)
@@ -47,14 +43,23 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
-        ColorId.OnValueChanged -= AlCambiarColorId;
-
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged -= AlCambiarEstado;
     }
 
     private void Update()
     {
+        // Detección de celda (solo servidor).
+        if (NetworkManager.Singleton.IsServer)
+        {
+            if (GameManager.Instance != null &&
+                GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
+            {
+                DetectarCeldaYpintar();
+            }
+        }
+
+        // Input (solo owner).
         if (!IsOwner) { inputH = 0f; inputV = 0f; return; }
 
         if (GameManager.Instance == null ||
@@ -74,15 +79,29 @@ public class PlayerController : NetworkBehaviour
 
         if (rb == null) return;
 
-        // Dirección normalizada para que las diagonales no vayan más rápido.
-        Vector3 direccion = new Vector3(inputH, 0f, inputV).normalized;
+        Vector3 direccion = new Vector3(inputH, 0f, inputV);
 
-        // MovePosition con Rigidbody dinámico respeta colliders estáticos.
-        // El NetworkTransform replica el resultado.
+        if (direccion.sqrMagnitude > 0.01f)
+            direccion = direccion.normalized;
+        else
+            direccion = Vector3.zero;
+
         rb.MovePosition(rb.position + direccion * velocidadMovimiento * Time.fixedDeltaTime);
     }
 
-    private void AlCambiarColorId(byte viejo, byte nuevo) => AplicarColor(nuevo);
+    private void DetectarCeldaYpintar()
+    {
+        if (SueloController.Instance == null) return;
+
+        int celdaActual = SueloController.Instance.ObtenerIndiceEnPosicion(transform.position);
+
+        if (celdaActual == -1) return;
+        if (celdaActual == ultimaCelda) return;
+
+        ultimaCelda = celdaActual;
+
+        SueloController.Instance.EstablecerColorBaldosa(celdaActual, ColorId.Value);
+    }
 
     private void AplicarColor(byte id)
     {
@@ -91,73 +110,89 @@ public class PlayerController : NetworkBehaviour
             render.material.color = PlayerPalette.Obtener(id);
     }
 
+    // ============================================================
+    // REACCIÓN A CAMBIOS DE ESTADO
+    // ============================================================
+
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
         if (nuevo == GameState.EnJuego)
+        {
+            // Empezamos a jugar: al spawn de juego, con física activada.
+            ResetearEstadoInterno();
             ColocarEnSpawnDeJuego();
+            ActivarFisica();
+        }
+        else if (nuevo == GameState.SalaEspera)
+        {
+            // Volvemos al lobby: a la esquina, con física congelada.
+            ResetearEstadoInterno();
+            ColocarEnSalaEspera();
+            DesactivarFisica();
+        }
+        // Finalizado: no hacemos nada, el jugador se queda quieto donde está.
     }
 
-    // -------------------------------------------------------------------
+    /// <summary>
+    /// Limpia input y última celda para que el próximo movimiento
+    /// arranque desde cero. Se llama en cada cambio de estado relevante.
+    /// </summary>
+    private void ResetearEstadoInterno()
+    {
+        ultimaCelda = -1;
+        inputH = 0f;
+        inputV = 0f;
+    }
+
+    // ============================================================
+    // FÍSICA
+    // ============================================================
+
+    private void ActivarFisica()
+    {
+        if (rb == null) return;
+
+        rb.isKinematic = false;
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+    }
+
+    private void DesactivarFisica()
+    {
+        if (rb == null) return;
+
+        rb.isKinematic = true;
+    }
+
+    // ============================================================
     // COLOCACIÓN
-    // -------------------------------------------------------------------
+    // ============================================================
 
     private IEnumerator ColocarEnSalaEsperaDiferido()
     {
-        // Esperar a que SueloController exista Y tenga los bounds calculados.
-        // Timeout de 5 segundos para no quedarnos colgados si algo falla.
-        float timeout = 5f;
-        float t = 0f;
-
-        while (t < timeout)
-        {
-            if (SueloController.Instance != null &&
-                SueloController.Instance.BoundsListos)
-            {
-                break;
-            }
-
-            t += Time.deltaTime;
-            yield return null;
-        }
-
-        if (t >= timeout)
-            Debug.LogWarning("[Player] Timeout esperando bounds del SueloController. " +
-                             "Usando fallback.");
-
+        yield return null;
         ColocarEnSalaEspera();
     }
 
     private void ColocarEnSalaEspera()
     {
-        // Cada jugador aparece en su esquina apenas se conecta.
         Vector3 destino = ObtenerPosicionInicial();
         MoverConTeleport(destino);
     }
 
     private void ColocarEnSpawnDeJuego()
     {
-        // Al empezar la partida, se reposicionan por si algo los movió.
         Vector3 destino = ObtenerPosicionInicial();
         MoverConTeleport(destino);
     }
 
-    /// <summary>
-    /// Calcula la posición inicial del jugador según su ClientId.
-    /// Usa SueloController si está disponible, o un fallback simple.
-    /// </summary>
     private Vector3 ObtenerPosicionInicial()
     {
         if (SueloController.Instance != null)
-        {
-            Vector3 pos = SueloController.Instance.ObtenerPosicionSpawn((int)OwnerClientId);
-            Debug.Log($"[Player] ClientId={OwnerClientId} → " +
-                      $"boundsListos={SueloController.Instance.BoundsListos} → pos={pos}");
-            return pos;
-        }
+            return SueloController.Instance.ObtenerPosicionSpawn((int)OwnerClientId);
 
-        Debug.Log($"[Player] ClientId={OwnerClientId} → FALLBACK (SueloController.Instance es null)");
         float x = (OwnerClientId - 1.5f) * 1.5f;
-        return new Vector3(x, 1.05f, -3f);
+        return new Vector3(x, 1.10f, -3f);
     }
 
     private void MoverConTeleport(Vector3 destino)
@@ -165,17 +200,20 @@ public class PlayerController : NetworkBehaviour
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
 
-        // 1) Movemos el Rigidbody. Con Rigidbody dinámico, esta es la
-        //    fuente de verdad de la posición.
         if (rb != null)
+        {
             rb.position = destino;
 
-        // 2) Movemos también el transform, para que NetworkTransform
-        //    vea la nueva posición inmediatamente.
+            if (!rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+        }
+
         transform.position = destino;
         transform.rotation = Quaternion.identity;
 
-        // 3) Avisamos al NetworkTransform del salto para que no interpole.
         if (IsOwner)
         {
             var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
