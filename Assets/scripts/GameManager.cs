@@ -16,7 +16,6 @@ public class GameManager : NetworkBehaviour
     // REFERENCIAS UI
     // ============================================================
     // Asignar el Canvas del lobby desde el Inspector.
-    // Evita usar GameObject.Find (que puede agarrar el Canvas equivocado).
 
     [Header("Referencias UI")]
     [SerializeField] private GameObject canvasLobby;
@@ -33,17 +32,30 @@ public class GameManager : NetworkBehaviour
         );
 
     // ============================================================
-    // TIEMPO
+    // TIMER
     // ============================================================
+    // En lugar de sincronizar el tiempo restante cada frame
+    // (que genera ~60 paquetes por segundo), sincronizamos
+    // SOLO el instante en que empezó la partida.
+    //
+    // Cada cliente calcula su tiempo localmente usando ServerTime,
+    // que es un reloj compartido y sincronizado entre todas las máquinas.
 
-    public NetworkVariable<float> TiempoRestante =
-        new NetworkVariable<float>(
-            180f,
+    [Header("Timer")]
+    [SerializeField] private float duracionPartida = 120f;
+
+    // Propiedad pública para que el TimerUI lea la duración.
+    public float DuracionPartida => duracionPartida;
+
+    // Instante en que empezó la partida, según el reloj del servidor.
+    // Se escribe UNA SOLA VEZ al pulsar "Iniciar Partida".
+    // Tipo double porque ServerTime.Time es double y necesitamos precisión.
+    public NetworkVariable<double> TiempoInicioPartida =
+        new NetworkVariable<double>(
+            0,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server
         );
-
-    private const float DURACION_PARTIDA = 15f;
 
     // ============================================================
     // CONTADORES POR COLORID
@@ -71,6 +83,7 @@ public class GameManager : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        // Solo el servidor inicializa la lista de contadores.
         if (IsServer)
         {
             contadoresPorColor.Clear();
@@ -90,10 +103,15 @@ public class GameManager : NetworkBehaviour
 
         Debug.Log("[GameManager] Empezando partida");
 
+        // Resetear contadores.
         for (int i = 0; i < contadoresPorColor.Count; i++)
             contadoresPorColor[i] = 0;
 
-        TiempoRestante.Value = DURACION_PARTIDA;
+        // ✅ CLAVE: guardamos el instante de inicio según el reloj del servidor.
+        // Este valor se sincroniza a todos los clientes UNA SOLA VEZ.
+        // A partir de acá, cada cliente calcula su tiempo restante localmente.
+        TiempoInicioPartida.Value = NetworkManager.Singleton.ServerTime.Time;
+
         EstadoActual.Value = GameState.EnJuego;
     }
 
@@ -103,31 +121,46 @@ public class GameManager : NetworkBehaviour
 
     private void Update()
     {
-        // Mostrar u ocultar el Canvas del lobby según el estado.
-        if(canvasLobby != null)
-{
-            // ✅ El Canvas del lobby SOLO se muestra en SalaEspera.
-            // En EnJuego y en Finalizado, está oculto.
+        // Mostrar el Canvas del lobby SOLO en SalaEspera.
+        if (canvasLobby != null)
+        {
             bool deberiaEstarActivo = (EstadoActual.Value == GameState.SalaEspera);
 
             if (canvasLobby.activeSelf != deberiaEstarActivo)
                 canvasLobby.SetActive(deberiaEstarActivo);
         }
 
-        // Timer (solo servidor).
+        // El timer solo lo controla el servidor.
         if (!IsServer) return;
         if (EstadoActual.Value != GameState.EnJuego) return;
 
-        if (TiempoRestante.Value > 0f)
-        {
-            TiempoRestante.Value -= Time.deltaTime;
+        // ✅ Calculamos el tiempo restante a partir del instante de inicio.
+        // No restamos deltaTime cada frame (eso acumulaba error).
+        // Tampoco escribimos en una NetworkVariable cada frame.
+        float restante = CalcularTiempoRestante();
 
-            if (TiempoRestante.Value <= 0f)
-            {
-                TiempoRestante.Value = 0f;
-                TerminarPartida();
-            }
-        }
+        if (restante <= 0f)
+            TerminarPartida();
+    }
+
+    /// <summary>
+    /// Devuelve cuántos segundos quedan de partida, calculado localmente
+    /// a partir del instante de inicio compartido por el servidor.
+    /// Sirve tanto para el servidor como para los clientes.
+    /// </summary>
+    public float CalcularTiempoRestante()
+    {
+        // Reloj compartido: es el mismo valor en todas las máquinas
+        // (dentro de unos pocos milisegundos).
+        double ahora = NetworkManager.Singleton.ServerTime.Time;
+
+        // Tiempo transcurrido desde el inicio.
+        double transcurrido = ahora - TiempoInicioPartida.Value;
+
+        // Tiempo restante = duración - transcurrido. Nunca negativo.
+        float restante = duracionPartida - (float)transcurrido;
+
+        return Mathf.Max(0f, restante);
     }
 
     // ============================================================
@@ -170,13 +203,12 @@ public class GameManager : NetworkBehaviour
 
         Debug.Log("[GameManager] TIEMPO TERMINADO");
 
+        // Buscar el ganador (el color con más tiles).
         byte colorGanador = 0;
         int mayorCantidad = -1;
 
         for (int i = 1; i < contadoresPorColor.Count; i++)
         {
-            Debug.Log($"[GameManager] Color {i}: {contadoresPorColor[i]} tiles");
-
             if (contadoresPorColor[i] > mayorCantidad)
             {
                 mayorCantidad = contadoresPorColor[i];
@@ -184,6 +216,7 @@ public class GameManager : NetworkBehaviour
             }
         }
 
+        // Si nadie pintó nada, es empate.
         if (mayorCantidad <= 0)
         {
             colorGanador = 0;
@@ -199,7 +232,7 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void AnunciarGanadorRpc(byte colorGanador, int baldosas)
     {
-        Debug.Log($"🏆 [GANADOR] Color {colorGanador} con {baldosas} tiles");
+        Debug.Log($" [GANADOR] Color {colorGanador} con {baldosas} tiles");
         OnGanadorAnunciado?.Invoke(colorGanador, baldosas);
     }
 
@@ -214,13 +247,17 @@ public class GameManager : NetworkBehaviour
 
         Debug.Log("[GameManager] Volviendo al lobby");
 
+        // Resetear contadores.
         for (int i = 0; i < contadoresPorColor.Count; i++)
             contadoresPorColor[i] = 0;
 
+        // Resetear tiles a su color original.
         if (SueloController.Instance != null)
             SueloController.Instance.ResetearTodasLasTiles();
 
-        TiempoRestante.Value = DURACION_PARTIDA;
+        // El TiempoInicioPartida no hace falta resetearlo: al empezar la
+        // próxima partida se sobrescribe con el nuevo instante.
+
         EstadoActual.Value = GameState.SalaEspera;
     }
 }

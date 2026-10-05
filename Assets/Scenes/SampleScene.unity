@@ -1061,7 +1061,7 @@ GameObject:
   - component: {fileID: 95739194}
   - component: {fileID: 95739193}
   m_Layer: 5
-  m_Name: Canvas
+  m_Name: canvaslobby
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -14405,11 +14405,12 @@ MonoBehaviour:
       MinSecondsBetweenUpdates: 0
       MaxSecondsBetweenUpdates: 0
     m_InternalValue: 0
-  TiempoRestante:
+  duracionPartida: 15
+  TiempoInicioPartida:
     UpdateTraits:
       MinSecondsBetweenUpdates: 0
       MaxSecondsBetweenUpdates: 0
-    m_InternalValue: 180
+    m_InternalValue: 0
 --- !u!1001 &954181898
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -23990,7 +23991,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 163, y: 185}
+  m_AnchoredPosition: {x: 163, y: 173}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1670268218

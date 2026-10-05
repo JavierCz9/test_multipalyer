@@ -49,7 +49,7 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        // El servidor detecta la celda de TODOS los jugadores.
+        // Detección de celda (solo servidor).
         if (NetworkManager.Singleton.IsServer)
         {
             if (GameManager.Instance != null &&
@@ -59,6 +59,7 @@ public class PlayerController : NetworkBehaviour
             }
         }
 
+        // Input (solo owner).
         if (!IsOwner) { inputH = 0f; inputV = 0f; return; }
 
         if (GameManager.Instance == null ||
@@ -109,15 +110,43 @@ public class PlayerController : NetworkBehaviour
             render.material.color = PlayerPalette.Obtener(id);
     }
 
+    // ============================================================
+    // REACCIÓN A CAMBIOS DE ESTADO
+    // ============================================================
+
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
         if (nuevo == GameState.EnJuego)
         {
-            ultimaCelda = -1;
+            // Empezamos a jugar: al spawn de juego, con física activada.
+            ResetearEstadoInterno();
             ColocarEnSpawnDeJuego();
             ActivarFisica();
         }
+        else if (nuevo == GameState.SalaEspera)
+        {
+            // Volvemos al lobby: a la esquina, con física congelada.
+            ResetearEstadoInterno();
+            ColocarEnSalaEspera();
+            DesactivarFisica();
+        }
+        // Finalizado: no hacemos nada, el jugador se queda quieto donde está.
     }
+
+    /// <summary>
+    /// Limpia input y última celda para que el próximo movimiento
+    /// arranque desde cero. Se llama en cada cambio de estado relevante.
+    /// </summary>
+    private void ResetearEstadoInterno()
+    {
+        ultimaCelda = -1;
+        inputH = 0f;
+        inputV = 0f;
+    }
+
+    // ============================================================
+    // FÍSICA
+    // ============================================================
 
     private void ActivarFisica()
     {
@@ -127,6 +156,17 @@ public class PlayerController : NetworkBehaviour
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
     }
+
+    private void DesactivarFisica()
+    {
+        if (rb == null) return;
+
+        rb.isKinematic = true;
+    }
+
+    // ============================================================
+    // COLOCACIÓN
+    // ============================================================
 
     private IEnumerator ColocarEnSalaEsperaDiferido()
     {
@@ -152,7 +192,7 @@ public class PlayerController : NetworkBehaviour
             return SueloController.Instance.ObtenerPosicionSpawn((int)OwnerClientId);
 
         float x = (OwnerClientId - 1.5f) * 1.5f;
-        return new Vector3(x, 1.05f, -3f);
+        return new Vector3(x, 1.10f, -3f);
     }
 
     private void MoverConTeleport(Vector3 destino)

@@ -7,6 +7,7 @@ using UnityEngine.UI;
 /// Muestra el panel de resultado al terminar la partida.
 /// Se suscribe al evento OnGanadorAnunciado del GameManager
 /// (que se dispara desde el RPC AnunciarGanadorRpc).
+/// Se oculta y limpia al volver a SalaEspera.
 /// </summary>
 public class ResultadoUI : MonoBehaviour
 {
@@ -19,17 +20,12 @@ public class ResultadoUI : MonoBehaviour
 
     private void Start()
     {
-        Debug.Log("[ResultadoUI] Start ejecutado");
-
+        // Ocultar al arrancar.
         if (panelResultado != null)
             panelResultado.SetActive(false);
-        else
-            Debug.LogWarning("[ResultadoUI] panelResultado es NULL");
 
-        GameManager.OnGanadorAnunciado += AlAnunciarGanador;
-        Debug.Log("[ResultadoUI] Suscrito al evento OnGanadorAnunciado");
-        if (panelResultado != null)
-            panelResultado.SetActive(false);
+        // Limpiar los textos por si quedaron datos de una sesión anterior.
+        LimpiarPanel();
 
         // Suscribirse al evento del GameManager.
         GameManager.OnGanadorAnunciado += AlAnunciarGanador;
@@ -51,24 +47,12 @@ public class ResultadoUI : MonoBehaviour
             GameManager.Instance.EstadoActual.OnValueChanged -= AlCambiarEstado;
     }
 
+    // ============================================================
+    // MOSTRAR EL GANADOR
+    // ============================================================
+
     private void AlAnunciarGanador(byte colorGanador, int baldosas)
     {
-        Debug.Log($"[ResultadoUI] Evento recibido. " +
-             $"panelResultado={(panelResultado != null ? panelResultado.name : "NULL")}");
-
-        if (panelResultado != null)
-        {
-            panelResultado.SetActive(true);
-            Debug.Log($"[ResultadoUI] Panel activado. " +
-                      $"activeSelf={panelResultado.activeSelf}, " +
-                      $"activeInHierarchy={panelResultado.activeInHierarchy}");
-        }
-        else
-        {
-            Debug.LogError("[ResultadoUI] panelResultado es NULL. " +
-                           "Falta asignarlo en el Inspector.");
-        }
-        Debug.Log($"[ResultadoUI] Evento recibido. Ganador={colorGanador}, tiles={baldosas}");
         if (panelResultado != null)
             panelResultado.SetActive(true);
 
@@ -83,7 +67,7 @@ public class ResultadoUI : MonoBehaviour
             else
             {
                 textoGanador.text = $"¡Ganó el jugador {colorGanador}!";
-                textoGanador.color = PlayerPalette.Obtener(colorGanador);
+                textoGanador.color = Color.white;
             }
         }
 
@@ -91,11 +75,13 @@ public class ResultadoUI : MonoBehaviour
         if (textoCantidad != null)
             textoCantidad.text = $"{baldosas} tiles pintadas";
 
-        // Ícono del ganador.
+        // Ícono del ganador con el color correspondiente.
         if (iconoGanador != null)
         {
             if (colorGanador == 0)
+            {
                 iconoGanador.enabled = false;
+            }
             else
             {
                 iconoGanador.enabled = true;
@@ -104,19 +90,51 @@ public class ResultadoUI : MonoBehaviour
         }
     }
 
+    // ============================================================
+    // OCULTAR Y LIMPIAR AL VOLVER AL LOBBY
+    // ============================================================
+
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
-        // Si salimos del estado Finalizado, ocultar el panel.
+        // Si salimos del estado Finalizado, ocultar el panel y limpiarlo.
         if (nuevo != GameState.Finalizado && panelResultado != null)
+        {
             panelResultado.SetActive(false);
+            LimpiarPanel();
+        }
     }
+
+    /// <summary>
+    /// Limpia los textos y el ícono del panel de resultado.
+    /// Se llama al volver al lobby para que la próxima partida empiece limpia.
+    /// </summary>
+    private void LimpiarPanel()
+    {
+        if (textoGanador != null)
+        {
+            textoGanador.text = "";
+            textoGanador.color = Color.white;
+        }
+
+        if (textoCantidad != null)
+            textoCantidad.text = "";
+
+        if (iconoGanador != null)
+            iconoGanador.enabled = false;
+    }
+
+    // ============================================================
+    // BOTÓN VOLVER AL LOBBY
+    // ============================================================
 
     private void OnClickVolverAlLobby()
     {
+        Debug.Log(">>> [ResultadoUI] Clic en Volver al Lobby");
+
         // Solo el Host puede volver al lobby.
         if (!NetworkManager.Singleton.IsServer)
         {
-            Debug.Log("[Resultado] Solo el Host puede volver al lobby.");
+            Debug.Log(">>> [ResultadoUI] No soy Host, no puedo volver.");
             return;
         }
 

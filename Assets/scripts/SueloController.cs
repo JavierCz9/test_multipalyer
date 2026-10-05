@@ -163,7 +163,7 @@ public class SueloController : NetworkBehaviour
         float maxX = maxBounds.x - margen;
         float minZ = minBounds.z + margen;
         float maxZ = maxBounds.z - margen;
-        float y = 1.05f;
+        float y = 1.10f;
 
         Vector3[] esquinas =
         {
