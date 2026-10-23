@@ -13,7 +13,7 @@ public class SueloController : NetworkBehaviour
     private NetworkList<byte> idsColores;
     private Tile[] tilesPorIndice;
 
-    // Diccionario: coordenada de celda → tile (permite huecos).
+    // Diccionario: coordenada de celda → tile.
     private Dictionary<Vector2Int, Tile> tilesPorCelda
         = new Dictionary<Vector2Int, Tile>();
 
@@ -32,6 +32,8 @@ public class SueloController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        base.OnNetworkSpawn();
+
         var todas = FindObjectsByType<Tile>();
 
         if (todas.Length == 0)
@@ -68,8 +70,13 @@ public class SueloController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        base.OnNetworkDespawn();
         idsColores.OnListChanged -= AlCambiarColor;
     }
+
+    // ============================================================
+    // ÍNDICES
+    // ============================================================
 
     private void AsignarIndicesPorPosicion(Tile[] tiles)
     {
@@ -88,6 +95,10 @@ public class SueloController : NetworkBehaviour
         for (int i = 0; i < tiles.Length; i++)
             tiles[i].Indice = i;
     }
+
+    // ============================================================
+    // BOUNDS
+    // ============================================================
 
     private void CalcularBounds(Tile[] tiles)
     {
@@ -108,6 +119,10 @@ public class SueloController : NetworkBehaviour
         origenGrid = minBounds;
         boundsCalculados = true;
     }
+
+    // ============================================================
+    // DICCIONARIO DE CELDAS
+    // ============================================================
 
     private void ConstruirDiccionarioCeldas(Tile[] tiles)
     {
@@ -134,10 +149,10 @@ public class SueloController : NetworkBehaviour
         return new Vector2Int(x, z);
     }
 
-    /// <summary>
-    /// Devuelve el índice de la tile que ocupa una posición del mundo.
-    /// -1 si no hay tile en esa celda (hueco).
-    /// </summary>
+    // ============================================================
+    // DETECTAR BALDOSA
+    // ============================================================
+
     public int ObtenerIndiceEnPosicion(Vector3 pos)
     {
         if (!boundsCalculados) return -1;
@@ -150,6 +165,10 @@ public class SueloController : NetworkBehaviour
         return -1;
     }
 
+    // ============================================================
+    // SPAWN DE JUGADORES
+    // ============================================================
+
     public Vector3 ObtenerPosicionSpawn(int indice)
     {
         if (!boundsCalculados)
@@ -158,12 +177,12 @@ public class SueloController : NetworkBehaviour
             return new Vector3(xFallback, 1.05f, -3f);
         }
 
-        float margen = 1.5f;
+        float margen = 1f;
         float minX = minBounds.x + margen;
         float maxX = maxBounds.x - margen;
         float minZ = minBounds.z + margen;
         float maxZ = maxBounds.z - margen;
-        float y = 1.10f;
+        float y = 1f;
 
         Vector3[] esquinas =
         {
@@ -186,6 +205,10 @@ public class SueloController : NetworkBehaviour
         return medios[(indice - 4) % 4];
     }
 
+    // ============================================================
+    // CAMBIO DE COLOR
+    // ============================================================
+
     private void AlCambiarColor(NetworkListEvent<byte> evento)
     {
         if (evento.Type != NetworkListEvent<byte>.EventType.Value) return;
@@ -195,17 +218,12 @@ public class SueloController : NetworkBehaviour
         Tile tile = tilesPorIndice[evento.Index];
         if (tile == null) return;
 
-        // ✅ Si el valor es 0, restaurar el color original del prefab.
-        // Si es 1..8, aplicar el color del jugador.
         if (evento.Value == 0)
             tile.RestaurarColorOriginal();
         else
             tile.EstablecerColor(PlayerPalette.Obtener(evento.Value));
     }
 
-    /// <summary>
-    /// El servidor llama a esto cuando un jugador pisa una tile.
-    /// </summary>
     public void EstablecerColorBaldosa(int indice, byte idColor)
     {
         if (!IsServer) return;
@@ -220,16 +238,79 @@ public class SueloController : NetworkBehaviour
             GameManager.Instance.ActualizarContador(colorAnterior, idColor);
     }
 
-    /// <summary>
-    /// Resetea todas las tiles a su color original.
-    /// Solo el servidor puede llamarlo.
-    /// </summary>
+    // ============================================================
+    // ROBAR BALDOSAS
+    // ============================================================
+
+    public void RobarBaldosas(byte colorLadron, byte colorEnemigo)
+    {
+        if (!IsServer) return;
+
+        List<int> baldosasEnemigas = new List<int>();
+
+        for (int i = 0; i < idsColores.Count; i++)
+        {
+            if (idsColores[i] == colorEnemigo)
+                baldosasEnemigas.Add(i);
+        }
+
+        int cantidadARobar = Mathf.Min(5, baldosasEnemigas.Count);
+
+        // Mezclar para elegir 5 al azar.
+        for (int i = 0; i < baldosasEnemigas.Count; i++)
+        {
+            int randomIndex = Random.Range(i, baldosasEnemigas.Count);
+            int temporal = baldosasEnemigas[i];
+            baldosasEnemigas[i] = baldosasEnemigas[randomIndex];
+            baldosasEnemigas[randomIndex] = temporal;
+        }
+
+        for (int i = 0; i < cantidadARobar; i++)
+        {
+            int indice = baldosasEnemigas[i];
+            idsColores[indice] = colorLadron;
+
+            if (GameManager.Instance != null)
+                GameManager.Instance.ActualizarContador(colorEnemigo, colorLadron);
+        }
+
+        Debug.Log($"[Item] Se robaron {cantidadARobar} baldosas " +
+                  $"del color {colorEnemigo} al color {colorLadron}.");
+    }
+
+    // ============================================================
+    // POSICIÓN RANDOM PARA EL ITEM
+    // ============================================================
+    // Usa el diccionario tilesPorCelda, que SOLO contiene celdas
+    // que tienen una tile real. Así nunca elige un hueco.
+
+    public Vector3 ObtenerPosicionRandomParaItem()
+    {
+        if (tilesPorCelda.Count == 0)
+        {
+            Debug.LogWarning("[Suelo] No hay tiles para elegir posición random.");
+            return Vector3.zero;
+        }
+
+        // Elegimos una celda al azar del diccionario.
+        var celdas = new List<Vector2Int>(tilesPorCelda.Keys);
+        Vector2Int celda = celdas[Random.Range(0, celdas.Count)];
+
+        Tile tile = tilesPorCelda[celda];
+
+        // Aparece un poco por encima de la tile para que se vea flotando.
+        return tile.transform.position + Vector3.up * 0.5f;
+    }
+
+    // ============================================================
+    // RESET
+    // ============================================================
+
     public void ResetearTodasLasTiles()
     {
         if (!IsServer) return;
         if (idsColores == null) return;
 
-        // Resetear la lista a 0 (sin dueño).
         for (int i = 0; i < idsColores.Count; i++)
             idsColores[i] = 0;
 
