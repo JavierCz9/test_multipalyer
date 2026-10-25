@@ -7,9 +7,7 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float velocidadMovimiento = 8f;
 
     public NetworkVariable<byte> ColorId = new NetworkVariable<byte>(
-        0,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Owner
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner
     );
 
     private Rigidbody rb;
@@ -20,11 +18,6 @@ public class PlayerController : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         rb = GetComponent<Rigidbody>();
-
-        // Física congelada durante la sala de espera.
-        if (rb != null)
-            rb.isKinematic = true;
-
         ColorId.OnValueChanged += (v, n) => AplicarColor(n);
 
         if (IsOwner)
@@ -32,13 +25,24 @@ public class PlayerController : NetworkBehaviour
             byte id = (byte)(OwnerClientId % (ulong)PlayerPalette.CantidadJugadores + 1);
             ColorId.Value = id;
         }
-
         AplicarColor(ColorId.Value);
-
-        StartCoroutine(ColocarEnSalaEsperaDiferido());
 
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged += AlCambiarEstado;
+
+        // ✅ FIX CRÍTICO: Revisamos el estado al nacer.
+        // Si la GameScene cargó y ya estamos "EnJuego", el jugador se activa de inmediato.
+        if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
+        {
+            ResetearEstadoInterno();
+            ColocarEnSpawnDeJuego();
+            ActivarFisica();
+        }
+        else
+        {
+            StartCoroutine(ColocarEnSalaEsperaDiferido());
+            DesactivarFisica();
+        }
     }
 
     public override void OnNetworkDespawn()
@@ -49,21 +53,15 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        // Detección de celda (solo servidor).
         if (NetworkManager.Singleton.IsServer)
         {
-            if (GameManager.Instance != null &&
-                GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
-            {
+            if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
                 DetectarCeldaYpintar();
-            }
         }
 
-        // Input (solo owner).
         if (!IsOwner) { inputH = 0f; inputV = 0f; return; }
 
-        if (GameManager.Instance == null ||
-            GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
+        if (GameManager.Instance == null || GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
         { inputH = 0f; inputV = 0f; return; }
 
         inputH = Input.GetAxis("Horizontal");
@@ -73,18 +71,12 @@ public class PlayerController : NetworkBehaviour
     private void FixedUpdate()
     {
         if (!IsOwner) return;
-        if (GameManager.Instance == null ||
-            GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
-            return;
-
+        if (GameManager.Instance == null || GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
         if (rb == null) return;
 
         Vector3 direccion = new Vector3(inputH, 0f, inputV);
-
-        if (direccion.sqrMagnitude > 0.01f)
-            direccion = direccion.normalized;
-        else
-            direccion = Vector3.zero;
+        if (direccion.sqrMagnitude > 0.01f) direccion = direccion.normalized;
+        else direccion = Vector3.zero;
 
         rb.MovePosition(rb.position + direccion * velocidadMovimiento * Time.fixedDeltaTime);
     }
@@ -92,51 +84,36 @@ public class PlayerController : NetworkBehaviour
     private void DetectarCeldaYpintar()
     {
         if (SueloController.Instance == null) return;
-
         int celdaActual = SueloController.Instance.ObtenerIndiceEnPosicion(transform.position);
 
-        if (celdaActual == -1) return;
-        if (celdaActual == ultimaCelda) return;
+        if (celdaActual == -1 || celdaActual == ultimaCelda) return;
 
         ultimaCelda = celdaActual;
-
         SueloController.Instance.EstablecerColorBaldosa(celdaActual, ColorId.Value);
     }
 
     private void AplicarColor(byte id)
     {
         var render = GetComponent<Renderer>();
-        if (render != null)
-            render.material.color = PlayerPalette.Obtener(id);
+        if (render != null) render.material.color = PlayerPalette.Obtener(id);
     }
-
-    // ============================================================
-    // REACCIÓN A CAMBIOS DE ESTADO
-    // ============================================================
 
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
         if (nuevo == GameState.EnJuego)
         {
-            // Empezamos a jugar: al spawn de juego, con física activada.
             ResetearEstadoInterno();
             ColocarEnSpawnDeJuego();
             ActivarFisica();
         }
         else if (nuevo == GameState.SalaEspera)
         {
-            // Volvemos al lobby: a la esquina, con física congelada.
             ResetearEstadoInterno();
             ColocarEnSalaEspera();
             DesactivarFisica();
         }
-        // Finalizado: no hacemos nada, el jugador se queda quieto donde está.
     }
 
-    /// <summary>
-    /// Limpia input y última celda para que el próximo movimiento
-    /// arranque desde cero. Se llama en cada cambio de estado relevante.
-    /// </summary>
     private void ResetearEstadoInterno()
     {
         ultimaCelda = -1;
@@ -144,14 +121,9 @@ public class PlayerController : NetworkBehaviour
         inputV = 0f;
     }
 
-    // ============================================================
-    // FÍSICA
-    // ============================================================
-
     private void ActivarFisica()
     {
         if (rb == null) return;
-
         rb.isKinematic = false;
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
@@ -160,13 +132,8 @@ public class PlayerController : NetworkBehaviour
     private void DesactivarFisica()
     {
         if (rb == null) return;
-
         rb.isKinematic = true;
     }
-
-    // ============================================================
-    // COLOCACIÓN
-    // ============================================================
 
     private IEnumerator ColocarEnSalaEsperaDiferido()
     {
@@ -176,14 +143,12 @@ public class PlayerController : NetworkBehaviour
 
     private void ColocarEnSalaEspera()
     {
-        Vector3 destino = ObtenerPosicionInicial();
-        MoverConTeleport(destino);
+        MoverConTeleport(ObtenerPosicionInicial());
     }
 
     private void ColocarEnSpawnDeJuego()
     {
-        Vector3 destino = ObtenerPosicionInicial();
-        MoverConTeleport(destino);
+        MoverConTeleport(ObtenerPosicionInicial());
     }
 
     private Vector3 ObtenerPosicionInicial()
@@ -203,7 +168,6 @@ public class PlayerController : NetworkBehaviour
         if (rb != null)
         {
             rb.position = destino;
-
             if (!rb.isKinematic)
             {
                 rb.linearVelocity = Vector3.zero;
@@ -219,17 +183,10 @@ public class PlayerController : NetworkBehaviour
             var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
             if (nt != null)
             {
-                try
-                {
-                    nt.Teleport(destino, Quaternion.identity, transform.localScale);
-                }
-                catch (System.Exception e)
-                {
-                    Debug.LogWarning($"[Player] Teleport falló: {e.Message}");
-                }
+                try { nt.Teleport(destino, Quaternion.identity, transform.localScale); }
+                catch (System.Exception) { }
             }
         }
-
         StartCoroutine(ReactivarCollider(col));
     }
 
