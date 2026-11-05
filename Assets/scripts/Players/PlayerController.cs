@@ -1,4 +1,3 @@
-using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -18,6 +17,8 @@ public class PlayerController : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         rb = GetComponent<Rigidbody>();
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+
         ColorId.OnValueChanged += (v, n) => AplicarColor(n);
 
         if (IsOwner)
@@ -29,20 +30,6 @@ public class PlayerController : NetworkBehaviour
 
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged += AlCambiarEstado;
-
-        // ✅ FIX CRÍTICO: Revisamos el estado al nacer.
-        // Si la GameScene cargó y ya estamos "EnJuego", el jugador se activa de inmediato.
-        if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
-        {
-            ResetearEstadoInterno();
-            ColocarEnSpawnDeJuego();
-            ActivarFisica();
-        }
-        else
-        {
-            StartCoroutine(ColocarEnSalaEsperaDiferido());
-            DesactivarFisica();
-        }
     }
 
     public override void OnNetworkDespawn()
@@ -70,15 +57,23 @@ public class PlayerController : NetworkBehaviour
 
     private void FixedUpdate()
     {
-        if (!IsOwner) return;
-        if (GameManager.Instance == null || GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
-        if (rb == null) return;
+        if (!IsOwner || rb == null) return;
 
-        Vector3 direccion = new Vector3(inputH, 0f, inputV);
-        if (direccion.sqrMagnitude > 0.01f) direccion = direccion.normalized;
-        else direccion = Vector3.zero;
+        if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
+        {
+            if (rb.isKinematic) rb.isKinematic = false;
 
-        rb.MovePosition(rb.position + direccion * velocidadMovimiento * Time.fixedDeltaTime);
+            Vector3 direccion = new Vector3(inputH, 0f, inputV).normalized;
+            rb.linearVelocity = direccion * velocidadMovimiento;
+        }
+        else
+        {
+            if (!rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.isKinematic = true;
+            }
+        }
     }
 
     private void DetectarCeldaYpintar()
@@ -102,97 +97,9 @@ public class PlayerController : NetworkBehaviour
     {
         if (nuevo == GameState.EnJuego)
         {
-            ResetearEstadoInterno();
-            ColocarEnSpawnDeJuego();
-            ActivarFisica();
+            ultimaCelda = -1;
+            inputH = 0f;
+            inputV = 0f;
         }
-        else if (nuevo == GameState.SalaEspera)
-        {
-            ResetearEstadoInterno();
-            ColocarEnSalaEspera();
-            DesactivarFisica();
-        }
-    }
-
-    private void ResetearEstadoInterno()
-    {
-        ultimaCelda = -1;
-        inputH = 0f;
-        inputV = 0f;
-    }
-
-    private void ActivarFisica()
-    {
-        if (rb == null) return;
-        rb.isKinematic = false;
-        rb.linearVelocity = Vector3.zero;
-        rb.angularVelocity = Vector3.zero;
-    }
-
-    private void DesactivarFisica()
-    {
-        if (rb == null) return;
-        rb.isKinematic = true;
-    }
-
-    private IEnumerator ColocarEnSalaEsperaDiferido()
-    {
-        yield return null;
-        ColocarEnSalaEspera();
-    }
-
-    private void ColocarEnSalaEspera()
-    {
-        MoverConTeleport(ObtenerPosicionInicial());
-    }
-
-    private void ColocarEnSpawnDeJuego()
-    {
-        MoverConTeleport(ObtenerPosicionInicial());
-    }
-
-    private Vector3 ObtenerPosicionInicial()
-    {
-        if (SueloController.Instance != null)
-            return SueloController.Instance.ObtenerPosicionSpawn((int)OwnerClientId);
-
-        float x = (OwnerClientId - 1.5f) * 1.5f;
-        return new Vector3(x, 1.10f, -3f);
-    }
-
-    private void MoverConTeleport(Vector3 destino)
-    {
-        var col = GetComponent<Collider>();
-        if (col != null) col.enabled = false;
-
-        if (rb != null)
-        {
-            rb.position = destino;
-            if (!rb.isKinematic)
-            {
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-            }
-        }
-
-        transform.position = destino;
-        transform.rotation = Quaternion.identity;
-
-        if (IsOwner)
-        {
-            var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
-            if (nt != null)
-            {
-                try { nt.Teleport(destino, Quaternion.identity, transform.localScale); }
-                catch (System.Exception) { }
-            }
-        }
-        StartCoroutine(ReactivarCollider(col));
-    }
-
-    private IEnumerator ReactivarCollider(Collider col)
-    {
-        yield return null;
-        if (col != null) col.enabled = true;
     }
 }

@@ -64,7 +64,6 @@ public class ConnectionManager : MonoBehaviour
 
     private void AlPerderConexionConHost(ulong clientId)
     {
-        // ✅ FIX CS0176: Usamos la clase NetworkManager en lugar de la instancia networkManager
         if (!networkManager.IsServer && clientId == NetworkManager.ServerClientId)
         {
             Debug.LogWarning("[SESSION] El Host se desconectó. Volviendo al Menú Principal...");
@@ -199,7 +198,9 @@ public class ConnectionManager : MonoBehaviour
             return;
         }
         response.Approved = true;
-        response.CreatePlayerObject = true;
+
+        // ✅ FIX: Desactivamos el auto-spawn. El SpawnerJugadores se encargará de crearlos en la GameScene.
+        response.CreatePlayerObject = false;
     }
 
     private void MostrarMenu()
