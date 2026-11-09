@@ -4,24 +4,26 @@ using System.Collections.Generic;
 
 public class SpawnerJugadores : NetworkBehaviour
 {
-    [SerializeField] private Transform[] puntosSpawn;
+    [Header("Configuración")]
     [SerializeField] private GameObject jugadorPrefab;
+    [SerializeField] private float alturaSpawn = 1.1f;
 
     private int indiceSpawnActual = 0;
+    private List<Vector3> posicionesSpawn = new List<Vector3>();
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+
         if (IsServer)
         {
-            // ✅ FIX: Spawneamos a todos los jugadores que ya están conectados 
-            // (porque vienen de la LobbyScene)
+            LeerPosicionesDeLaEscena();
+
             foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
             {
                 SpawnearJugador(clientId);
             }
 
-            // Escuchamos por si alguien se une a mitad de partida (opcional)
             NetworkManager.Singleton.OnClientConnectedCallback += OnClienteConectado;
         }
     }
@@ -30,9 +32,7 @@ public class SpawnerJugadores : NetworkBehaviour
     {
         base.OnNetworkDespawn();
         if (NetworkManager.Singleton != null && IsServer)
-        {
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClienteConectado;
-        }
     }
 
     private void OnClienteConectado(ulong clientId)
@@ -41,28 +41,47 @@ public class SpawnerJugadores : NetworkBehaviour
         SpawnearJugador(clientId);
     }
 
+    private void LeerPosicionesDeLaEscena()
+    {
+        posicionesSpawn.Clear();
+        SpawnPoint[] spawns = FindObjectsByType<SpawnPoint>(FindObjectsInactive.Exclude);
+
+        foreach (var spawn in spawns)
+        {
+            Vector3 pos = spawn.transform.position;
+            pos.y = alturaSpawn;
+            posicionesSpawn.Add(pos);
+        }
+
+        Debug.Log($"[Spawner] Se encontraron {posicionesSpawn.Count} puntos de spawn.");
+    }
+
     private void SpawnearJugador(ulong clientId)
     {
-        if (puntosSpawn == null || puntosSpawn.Length == 0)
+        if (posicionesSpawn.Count == 0)
         {
-            Debug.LogError("SpawnerJugadores: falta asignar los puntos de spawn.");
+            Debug.LogError("[Spawner] No hay SpawnPoints en la escena.");
             return;
         }
 
-        // Evitar doble spawn si ya existe
-        if (NetworkManager.Singleton.ConnectedClients[clientId].PlayerObject != null) return;
+        // ✅ FIX: Si hay un jugador vivo de la partida anterior, lo destruimos
+        NetworkObject jugadorViejo = NetworkManager.Singleton.ConnectedClients[clientId].PlayerObject;
+        if (jugadorViejo != null)
+        {
+            jugadorViejo.Despawn(true);
+        }
 
-        int indice = indiceSpawnActual % puntosSpawn.Length;
+        // Ahora creamos al jugador nuevo en el SpawnPoint
+        int indice = indiceSpawnActual % posicionesSpawn.Count;
         indiceSpawnActual++;
 
-        Vector3 pos = puntosSpawn[indice].position;
-        Quaternion rot = puntosSpawn[indice].rotation;
+        Vector3 pos = posicionesSpawn[indice];
 
-        GameObject jugador = Instantiate(jugadorPrefab, pos, rot);
+        GameObject jugador = Instantiate(jugadorPrefab, pos, Quaternion.identity);
         var networkObj = jugador.GetComponent<NetworkObject>();
 
         networkObj.SpawnAsPlayerObject(clientId);
 
-        Debug.Log($"[SPAWN] Jugador {clientId} spawneado en punto {indice}");
+        Debug.Log($"[SPAWN] Jugador {clientId} spawneado en {pos}");
     }
 }

@@ -1,68 +1,42 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
-/// <summary>
-/// Caja de power-up. El servidor es el único que detecta la colisión,
-/// valida y ejecuta el robo. Cero RPCs involucrados.
-/// </summary>
-public class ItemCaja : NetworkBehaviour
+public class ItemCaja : ItemBase
 {
-    // Bandera de protección contra la race condition.
-    private bool utilizada = false;
+    [Header("Configuración del Robo")]
+    [SerializeField] private int cantidadBaldosasARobar = 5;
 
-    private void OnTriggerEnter(Collider other)
+    protected override void AplicarEfecto(PlayerController jugador)
     {
-        // REGLA DE ORO: Solo el servidor procesa la física.
-        if (!IsServer) return;
+        // 1. El GameManager (que sabe los contadores) nos dice a quién robarle
+        byte colorEnemigo = GameManager.Instance.ObtenerEnemigoConMasTiles(jugador.ColorId.Value);
 
-        // Si ya se usó, ignorar.
-        if (utilizada) return;
-
-        // ¿Entró un jugador?
-        PlayerController jugador = other.GetComponent<PlayerController>();
-        if (jugador == null) return;
-
-        // Validaciones de estado.
-        if (GameManager.Instance == null ||
-            GameManager.Instance.EstadoActual.Value != GameState.EnJuego) return;
-
-        // Bloquear la caja inmediatamente.
-        utilizada = true;
-
-        // Ejecutar la lógica.
-        byte colorEnemigo = BuscarEnemigoConMasTiles(jugador.ColorId.Value);
-
-        if (colorEnemigo != 0)
+        if (colorEnemigo != 0 && SueloController.Instance != null)
         {
-            SueloController.Instance.RobarBaldosas(jugador.ColorId.Value, colorEnemigo);
-        }
+            // 2. El SueloController nos da las baldosas de ese enemigo
+            List<int> baldosasEnemigas = SueloController.Instance.ObtenerIndicesDeColor(colorEnemigo);
 
-        // Destruir para todos.
-        NetworkObject netObj = GetComponent<NetworkObject>();
-        if (netObj != null && netObj.IsSpawned)
-        {
-            netObj.Despawn(true);
-        }
-    }
+            if (baldosasEnemigas.Count == 0) return;
 
-    private byte BuscarEnemigoConMasTiles(byte colorJugador)
-    {
-        byte mejorColor = 0;
-        int mejorCantidad = 0;
-
-        for (byte color = 1; color <= PlayerPalette.CantidadJugadores; color++)
-        {
-            if (color == colorJugador) continue;
-
-            int cantidad = GameManager.Instance.ObtenerBaldosas(color);
-
-            if (cantidad > mejorCantidad)
+            // 3. El ItemCaja hace el cálculo de cuántas robar (mezclando)
+            for (int i = 0; i < baldosasEnemigas.Count; i++)
             {
-                mejorCantidad = cantidad;
-                mejorColor = color;
+                int randomIndex = Random.Range(i, baldosasEnemigas.Count);
+                int temporal = baldosasEnemigas[i];
+                baldosasEnemigas[i] = baldosasEnemigas[randomIndex];
+                baldosasEnemigas[randomIndex] = temporal;
             }
-        }
 
-        return mejorColor;
+            int cantidadReal = Mathf.Min(cantidadBaldosasARobar, baldosasEnemigas.Count);
+
+            // 4. El ItemCaja le pide al SueloController que pinte las elegidas
+            for (int i = 0; i < cantidadReal; i++)
+            {
+                SueloController.Instance.EstablecerColorBaldosa(baldosasEnemigas[i], jugador.ColorId.Value);
+            }
+
+            Debug.Log($"[Item] La caja robó {cantidadReal} baldosas al color {colorEnemigo}.");
+        }
     }
 }
