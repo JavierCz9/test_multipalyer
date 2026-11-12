@@ -1,3 +1,4 @@
+
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -11,9 +12,17 @@ public class LobbyUIController : MonoBehaviour
     [SerializeField] private GameObject menuLobby;
     [SerializeField] private GameObject salaPanel;
 
+    [Header("Paneles de Selección")]
+    [SerializeField] private GameObject panelElegirPartida;
+    [SerializeField] private GameObject panelCrearPartida;
+    [SerializeField] private GameObject panelUnirsePartida;
+
     [Header("Elementos del Menú Principal")]
     [SerializeField] private TMP_InputField inputNombreJugador;
     [SerializeField] private TMP_InputField inputJoinCode;
+
+    [Header("Nombre del Invitado")]
+    [SerializeField] private TMP_InputField inputNombreInvitado;
 
     [Header("Botones del Menú")]
     [SerializeField] private GameObject botonCrearPartida;
@@ -25,100 +34,106 @@ public class LobbyUIController : MonoBehaviour
     [SerializeField] private TextMeshProUGUI textoBotonReady;
     [SerializeField] private GameObject botonIniciarObj;
 
-    private bool buscandoPartida = false;
-
     private void Start()
     {
         EventosJuego.OnSalaActualizada += RefrescarSala;
         EventosJuego.OnPartidaIniciada += OcultarLobby;
 
-        if (ConnectionManager.Instance != null && ConnectionManager.Instance.SessionActual != null)
+        var cm = ConnectionManager.Instance;
+
+        if (cm != null && cm.SessionActual != null)
         {
-            // Ya estamos en una sala (ej: volvimos del juego)
-            menuLobby.SetActive(false);
-            salaPanel.SetActive(true);
-
             if (inputNombreJugador != null)
-                inputNombreJugador.text = ConnectionManager.Instance.MiNombre;
+                inputNombreJugador.text = cm.MiNombre;
 
+            MostrarSala();
             RefrescarSala();
         }
         else
         {
-            menuLobby.SetActive(true);
-            salaPanel.SetActive(false);
-
-            // Empezamos a buscar partidas constantemente
-            buscandoPartida = true;
-            _ = RevisarPartidasLoop();
+            MostrarMenuInicial();
         }
     }
 
-    private async Task RevisarPartidasLoop()
+    private void MostrarMenuInicial()
     {
-        while (buscandoPartida)
-        {
-            if (ConnectionManager.Instance.SessionActual != null) break; // Si ya entramos a una, paramos.
+        menuLobby.SetActive(true);
+        salaPanel.SetActive(false);
 
-            try
-            {
-                var resultados = await MultiplayerService.Instance.QuerySessionsAsync(new QuerySessionsOptions());
-                bool hayPartida = false;
-
-                foreach (var partida in resultados.Sessions)
-                {
-                    if (partida.Name == "StealIsland" && partida.AvailableSlots > 0)
-                    {
-                        hayPartida = true;
-                        break;
-                    }
-                }
-
-                // Si hay partida ocultamos el botón, si no, lo mostramos
-                if (botonCrearPartida != null)
-                    botonCrearPartida.SetActive(!hayPartida);
-            }
-            catch
-            {
-                // Si falla, mostramos el botón por defecto
-                if (botonCrearPartida != null) botonCrearPartida.SetActive(true);
-            }
-
-            await Task.Delay(2000); // Espera 2 segundos antes de volver a consultar
-        }
+        panelElegirPartida.SetActive(true);
+        panelCrearPartida.SetActive(false);
+        panelUnirsePartida.SetActive(false);
     }
 
-    private void OnDestroy()
+    public void MostrarPanelCrear()
     {
-        buscandoPartida = false;
-        EventosJuego.OnSalaActualizada -= RefrescarSala;
-        EventosJuego.OnPartidaIniciada -= OcultarLobby;
+        panelElegirPartida.SetActive(false);
+        panelUnirsePartida.SetActive(false);
+        panelCrearPartida.SetActive(true);
     }
 
-    // =========================================================
-    // BOTONES DEL MENÚ PRINCIPAL
-    // =========================================================
+    public void MostrarPanelUnirse()
+    {
+        panelElegirPartida.SetActive(false);
+        panelCrearPartida.SetActive(false);
+        panelUnirsePartida.SetActive(true);
+    }
+
+    public void VolverAElegirPartida()
+    {
+        panelCrearPartida.SetActive(false);
+        panelUnirsePartida.SetActive(false);
+        panelElegirPartida.SetActive(true);
+    }
+
+    private void MostrarSala()
+    {
+        menuLobby.SetActive(false);
+        panelElegirPartida.SetActive(false);
+        panelCrearPartida.SetActive(false);
+        panelUnirsePartida.SetActive(false);
+
+        salaPanel.SetActive(true);
+    }
 
     public void OnClickCrearPartida()
     {
-        ConnectionManager.Instance.CrearPartidaRelay(inputNombreJugador.text);
+        string nombre = inputNombreJugador.text.Trim();
+
+        if (string.IsNullOrEmpty(nombre))
+        {
+            Debug.LogWarning("Ingresá tu nombre para crear la partida.");
+            return;
+        }
+
+        ConnectionManager.Instance.CrearPartidaRelay(nombre);
     }
 
     public void OnClickUnirse()
     {
         string codigo = inputJoinCode.text.Trim().ToUpper();
-        if (!string.IsNullOrEmpty(codigo))
-            ConnectionManager.Instance.UnirseAPartidaRelay(codigo, inputNombreJugador.text);
+        string nombre = inputNombreInvitado.text.Trim();
+
+        if (string.IsNullOrEmpty(codigo) ||
+            string.IsNullOrEmpty(nombre))
+        {
+            Debug.LogWarning("Ingresá tu nombre y el código de la sala.");
+            return;
+        }
+
+        ConnectionManager.Instance.UnirseAPartidaRelay(codigo, nombre);
     }
 
-    // =========================================================
-    // BOTONES DE LA SALA
-    // =========================================================
+    public void OnClickReady()
+    {
+        ConnectionManager.Instance.ToggleReady();
+    }
 
-    public void OnClickReady() => ConnectionManager.Instance.ToggleReady();
-    public void OnClickIniciarPartida() => ConnectionManager.Instance.OnClickIniciarPartida();
+    public void OnClickIniciarPartida()
+    {
+        ConnectionManager.Instance.OnClickIniciarPartida();
+    }
 
-    // ✅ NUEVO: Botón para salir de la sala y volver al menú
     public async void OnClickSalirDeLaSala()
     {
         if (ConnectionManager.Instance != null)
@@ -127,17 +142,18 @@ public class LobbyUIController : MonoBehaviour
         SceneManager.LoadScene("MainMenuScene");
     }
 
-    // =========================================================
-    // ACTUALIZACIÓN VISUAL
-    // =========================================================
-
     private void RefrescarSala()
     {
         var cm = ConnectionManager.Instance;
-        if (cm == null || cm.SessionActual == null) return;
+
+        if (cm == null || cm.SessionActual == null)
+            return;
+
+        MostrarSala();
 
         var session = cm.SessionActual;
 
+        // Código de la sala
         if (textoJoinCode != null)
         {
             if (cm.EsHost)
@@ -151,41 +167,78 @@ public class LobbyUIController : MonoBehaviour
             }
         }
 
+        // Botón Ready
         if (textoBotonReady != null)
-            textoBotonReady.text = cm.EstoyListo ? "Cancelar Listo" : "Marcar Listo";
-
-        foreach (Transform hijo in contenedorJugadores)
-            Destroy(hijo.gameObject);
-
-        foreach (var player in session.Players)
         {
-            GameObject fila = Instantiate(prefabItemJugador, contenedorJugadores);
-            TextMeshProUGUI textoFila = fila.GetComponentInChildren<TextMeshProUGUI>();
+            textoBotonReady.text = cm.EstoyListo
+                ? "Cancelar Listo"
+                : "Marcar Listo";
+        }
 
-            if (textoFila != null)
+        // Limpiar lista de jugadores
+        if (contenedorJugadores != null)
+        {
+            foreach (Transform hijo in contenedorJugadores)
+                Destroy(hijo.gameObject);
+        }
+
+        // Crear lista actualizada
+        if (contenedorJugadores != null && prefabItemJugador != null)
+        {
+            foreach (var player in session.Players)
             {
-                string nombreMostrar = "Jugador";
-                if (player.Properties.TryGetValue("PlayerName", out var nameProp))
-                    nombreMostrar = nameProp.Value;
+                GameObject fila = Instantiate(
+                    prefabItemJugador,
+                    contenedorJugadores
+                );
 
-                if (player.Id == session.Host) nombreMostrar += " (Host)";
+                TextMeshProUGUI textoFila =
+                    fila.GetComponentInChildren<TextMeshProUGUI>();
 
-                bool listo = player.Properties.TryGetValue("IsReady", out var prop) && prop.Value == "true";
+                if (textoFila != null)
+                {
+                    string nombreMostrar = "Jugador";
 
-                textoFila.text = $"{nombreMostrar} {(listo ? "[Listo]" : "[Esperando]")}";
-                textoFila.color = listo ? Color.green : Color.white;
+                    if (player.Properties.TryGetValue(
+                        "PlayerName", out var nameProp))
+                    {
+                        nombreMostrar = nameProp.Value;
+                    }
+
+                    if (player.Id == session.Host)
+                        nombreMostrar += " (Host)";
+
+                    bool listo =
+                        player.Properties.TryGetValue(
+                            "IsReady", out var prop)
+                        && prop.Value == "true";
+
+                    textoFila.text =
+                        $"{nombreMostrar} {(listo ? "[Listo]" : "[Esperando]")}";
+
+                    textoFila.color =
+                        listo ? Color.green : Color.white;
+                }
             }
         }
 
-        if (cm.EsHost && botonIniciarObj != null)
+        // Botón iniciar partida: solo Host
+        if (botonIniciarObj != null)
         {
-            botonIniciarObj.SetActive(true);
-            Button btn = botonIniciarObj.GetComponent<Button>();
-            if (btn != null) btn.interactable = cm.TodosListos();
-        }
-        else if (botonIniciarObj != null)
-        {
-            botonIniciarObj.SetActive(false);
+            if (cm.EsHost)
+            {
+                botonIniciarObj.SetActive(true);
+
+                Button btn =
+                    botonIniciarObj.GetComponent<Button>();
+
+                if (btn != null)
+                    btn.interactable = cm.TodosListos();
+            }
+            else
+            {
+                botonIniciarObj.SetActive(false);
+            }
         }
     }
 
@@ -193,5 +246,14 @@ public class LobbyUIController : MonoBehaviour
     {
         menuLobby.SetActive(false);
         salaPanel.SetActive(false);
+        panelElegirPartida.SetActive(false);
+        panelCrearPartida.SetActive(false);
+        panelUnirsePartida.SetActive(false);
+    }
+
+    private void OnDestroy()
+    {
+        EventosJuego.OnSalaActualizada -= RefrescarSala;
+        EventosJuego.OnPartidaIniciada -= OcultarLobby;
     }
 }
