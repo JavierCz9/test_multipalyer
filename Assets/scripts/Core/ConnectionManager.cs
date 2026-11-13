@@ -171,15 +171,27 @@ public class ConnectionManager : MonoBehaviour
         EventosJuego.PublicarSalaActualizada();
     }
 
+    
+    
     public bool TodosListos()
     {
-        if (session == null || session.Players == null || session.Players.Count == 0) return false;
+        // Mínimo 2 jugadores para iniciar
+        if (session == null ||
+            session.Players == null ||
+            session.Players.Count < 2)
+            return false;
+
+        // Todos los jugadores de la sala deben estar listos
         foreach (var player in session.Players)
         {
-            if (!player.Properties.TryGetValue("IsReady", out var prop) || prop.Value != "true") return false;
+            if (!player.Properties.TryGetValue("IsReady", out var prop)
+                || prop.Value != "true")
+                return false;
         }
+
         return true;
     }
+
 
     public void OnClickIniciarPartida()
     {
