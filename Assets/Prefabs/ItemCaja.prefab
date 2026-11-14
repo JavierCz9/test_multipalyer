@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 251902722378948236}
   - component: {fileID: 38202527712560792}
   - component: {fileID: 7593010020548203643}
-  - component: {fileID: 415050778118831333}
+  - component: {fileID: 8559973936156422099}
   m_Layer: 0
   m_Name: ItemCaja
   m_TagString: Untagged
@@ -141,7 +141,7 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
---- !u!114 &415050778118831333
+--- !u!114 &8559973936156422099
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}

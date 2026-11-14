@@ -113,6 +113,41 @@ public class GameManager : NetworkBehaviour
         return contadoresPorColor[colorId];
     }
 
+    // ============================================================
+    // HERRAMIENTA PARA EL ITEM CAJA (NUEVO)
+    // ============================================================
+
+    /// <summary>
+    /// Devuelve el ColorId del jugador con más baldosas pintadas, 
+    /// excluyendo al jugador actual (para que no se robe a sí mismo).
+    /// </summary>
+    public byte ObtenerEnemigoConMasTiles(byte colorJugadorActual)
+    {
+        if (!IsServer) return 0;
+
+        byte mejorColor = 0;
+        int mejorCantidad = 0;
+
+        for (byte color = 1; color <= PlayerPalette.CantidadJugadores; color++)
+        {
+            if (color == colorJugadorActual) continue;
+
+            int cantidad = ObtenerBaldosas(color);
+
+            if (cantidad > mejorCantidad)
+            {
+                mejorCantidad = cantidad;
+                mejorColor = color;
+            }
+        }
+
+        return mejorColor;
+    }
+
+    // ============================================================
+    // FIN DE PARTIDA
+    // ============================================================
+
     private void TerminarPartida()
     {
         if (!IsServer) return;
@@ -122,7 +157,7 @@ public class GameManager : NetworkBehaviour
         int mayorCantidad = -1;
         bool hayEmpate = false;
 
-        // ✅ Lógica de empate
+        // Lógica de empate
         for (int i = 1; i < contadoresPorColor.Count; i++)
         {
             if (contadoresPorColor[i] > mayorCantidad)

@@ -5,12 +5,15 @@ using UnityEngine;
 
 public class ItemSpawner : NetworkBehaviour
 {
-    [Header("Prefab del item")]
-    [SerializeField] private GameObject itemPrefab;
+    [Header("Prefabs de Ítems")]
+    [Tooltip("Arrastrá acá los prefabs de la Caja y de la Velocidad")]
+    [SerializeField] private GameObject[] prefabsItems;
 
     [Header("Configuración")]
     [SerializeField] private float tiempoEntreItems = 10f;
-    [SerializeField] private float duracionItem = 5f;
+    [SerializeField] private int cantidadItemsPorTanda = 2; // Cuántos ítems a la vez
+    [SerializeField] private float distanciaMinimaEntreItems = 3f; // Para que no aparezcan pegados
+    [SerializeField] private float duracionItem = 8f;
 
     private Coroutine rutinaSpawner;
     private readonly List<NetworkObject> itemsActivos = new List<NetworkObject>();
@@ -23,19 +26,14 @@ public class ItemSpawner : NetworkBehaviour
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged += AlCambiarEstado;
 
-        // ✅ FIX CRÍTICO: Si la escena ya cargó en estado EnJuego, arrancamos de inmediato.
         if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
-        {
-            if (rutinaSpawner == null)
-                rutinaSpawner = StartCoroutine(GenerarItems());
-        }
+            rutinaSpawner = StartCoroutine(GenerarItems());
     }
 
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
         if (rutinaSpawner != null) StopCoroutine(rutinaSpawner);
-
         if (GameManager.Instance != null)
             GameManager.Instance.EstadoActual.OnValueChanged -= AlCambiarEstado;
     }
@@ -43,19 +41,13 @@ public class ItemSpawner : NetworkBehaviour
     private void AlCambiarEstado(GameState viejo, GameState nuevo)
     {
         if (!IsServer) return;
-
         if (nuevo == GameState.EnJuego)
         {
-            if (rutinaSpawner == null)
-                rutinaSpawner = StartCoroutine(GenerarItems());
+            if (rutinaSpawner == null) rutinaSpawner = StartCoroutine(GenerarItems());
         }
-        else if (nuevo == GameState.SalaEspera || nuevo == GameState.Finalizado)
+        else
         {
-            if (rutinaSpawner != null)
-            {
-                StopCoroutine(rutinaSpawner);
-                rutinaSpawner = null;
-            }
+            if (rutinaSpawner != null) { StopCoroutine(rutinaSpawner); rutinaSpawner = null; }
             LimpiarItems();
         }
     }
@@ -65,37 +57,57 @@ public class ItemSpawner : NetworkBehaviour
         while (true)
         {
             yield return new WaitForSeconds(tiempoEntreItems);
-
-            if (GameManager.Instance == null || GameManager.Instance.EstadoActual.Value != GameState.EnJuego)
-                continue;
-
-            CrearItem();
+            if (GameManager.Instance != null && GameManager.Instance.EstadoActual.Value == GameState.EnJuego)
+                SpawnearTanda();
         }
     }
 
-    private void CrearItem()
+    private void SpawnearTanda()
     {
-        if (itemPrefab == null || SueloController.Instance == null) return;
+        if (prefabsItems.Length == 0 || SueloController.Instance == null) return;
 
-        Vector3 posicion = SueloController.Instance.ObtenerPosicionRandomParaItem();
-        GameObject nuevoItem = Instantiate(itemPrefab, posicion, Quaternion.identity);
-        NetworkObject networkObject = nuevoItem.GetComponent<NetworkObject>();
+        List<Vector3> posicionesElegidas = new List<Vector3>();
 
-        if (networkObject == null)
+        for (int i = 0; i < cantidadItemsPorTanda; i++)
         {
-            Destroy(nuevoItem);
-            return;
-        }
+            Vector3 posicion = Vector3.zero;
+            bool valida = false;
+            int intentos = 0;
 
-        networkObject.Spawn();
-        itemsActivos.Add(networkObject);
-        StartCoroutine(DestruirItemDespuesDeTiempo(networkObject));
+            // Buscamos una posición que no esté pegada a otro ítem de esta tanda
+            while (!valida && intentos < 15)
+            {
+                posicion = SueloController.Instance.ObtenerPosicionRandomParaItem();
+                valida = true;
+                foreach (var pos in posicionesElegidas)
+                {
+                    if (Vector3.Distance(posicion, pos) < distanciaMinimaEntreItems) { valida = false; break; }
+                }
+                intentos++;
+            }
+
+            if (valida)
+            {
+                posicionesElegidas.Add(posicion);
+
+                // Elegimos un prefab al azar
+                GameObject prefab = prefabsItems[Random.Range(0, prefabsItems.Length)];
+                GameObject item = Instantiate(prefab, posicion, Quaternion.identity);
+
+                NetworkObject netObj = item.GetComponent<NetworkObject>();
+                if (netObj != null)
+                {
+                    netObj.Spawn();
+                    itemsActivos.Add(netObj);
+                    StartCoroutine(DestruirItem(netObj));
+                }
+            }
+        }
     }
 
-    private IEnumerator DestruirItemDespuesDeTiempo(NetworkObject item)
+    private IEnumerator DestruirItem(NetworkObject item)
     {
         yield return new WaitForSeconds(duracionItem);
-
         if (item != null && item.IsSpawned)
         {
             itemsActivos.Remove(item);
@@ -107,8 +119,7 @@ public class ItemSpawner : NetworkBehaviour
     {
         for (int i = itemsActivos.Count - 1; i >= 0; i--)
         {
-            var item = itemsActivos[i];
-            if (item != null && item.IsSpawned) item.Despawn(true);
+            if (itemsActivos[i] != null && itemsActivos[i].IsSpawned) itemsActivos[i].Despawn(true);
         }
         itemsActivos.Clear();
     }
