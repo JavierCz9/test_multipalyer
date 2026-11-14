@@ -4218,7 +4218,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 62
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -4244,13 +4244,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.5948227, y: 0, z: 0, w: 0.80385697}
-  m_LocalPosition: {x: 0.9, y: 22, z: -5}
+  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 1, y: 19, z: 2}
   m_LocalScale: {x: 2.8739, y: 5.0086327, z: 2.8739}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 73, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
 --- !u!114 &330585547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -25813,7 +25813,7 @@ VideoPlayer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1913544466}
   m_Enabled: 1
-  m_VideoClip: {fileID: 32900000, guid: bde98e9b54837f94f96a7ccd4d26b0b3, type: 3}
+  m_VideoClip: {fileID: 32900000, guid: b84f893687e78d64f9264fcd3b2ea0ec, type: 3}
   m_TargetCameraAlpha: 1
   m_TargetCamera3DLayout: 0
   m_TargetCamera: {fileID: 330585545}
@@ -25833,7 +25833,7 @@ VideoPlayer:
   - 1
   m_Url: 
   m_EnabledAudioTracks: 01o
-  m_DirectAudioMutes: 00o
+  m_DirectAudioMutes: 01o
   m_ControlledAudioTrackCount: 1
   m_PlayOnAwake: 1
   m_SkipOnDrop: 1
