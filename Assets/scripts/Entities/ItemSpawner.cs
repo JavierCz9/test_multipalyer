@@ -11,8 +11,8 @@ public class ItemSpawner : NetworkBehaviour
 
     [Header("Configuración")]
     [SerializeField] private float tiempoEntreItems = 10f;
-    [SerializeField] private int cantidadItemsPorTanda = 2; // Cuántos ítems a la vez
-    [SerializeField] private float distanciaMinimaEntreItems = 3f; // Para que no aparezcan pegados
+    [SerializeField] private int cantidadItemsPorTanda = 2;
+    [SerializeField] private float distanciaMinimaEntreItems = 3f;
     [SerializeField] private float duracionItem = 8f;
 
     private Coroutine rutinaSpawner;
@@ -74,7 +74,6 @@ public class ItemSpawner : NetworkBehaviour
             bool valida = false;
             int intentos = 0;
 
-            // Buscamos una posición que no esté pegada a otro ítem de esta tanda
             while (!valida && intentos < 15)
             {
                 posicion = SueloController.Instance.ObtenerPosicionRandomParaItem();
@@ -90,9 +89,10 @@ public class ItemSpawner : NetworkBehaviour
             {
                 posicionesElegidas.Add(posicion);
 
-                // Elegimos un prefab al azar
                 GameObject prefab = prefabsItems[Random.Range(0, prefabsItems.Length)];
-                GameObject item = Instantiate(prefab, posicion, Quaternion.identity);
+
+                // ✅ ACÁ ESTÁ EL CAMBIO: Usamos prefab.transform.rotation
+                GameObject item = Instantiate(prefab, posicion, prefab.transform.rotation);
 
                 NetworkObject netObj = item.GetComponent<NetworkObject>();
                 if (netObj != null)
