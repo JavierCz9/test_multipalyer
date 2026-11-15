@@ -1,10 +1,6 @@
+
 using UnityEngine;
 
-/// <summary>
-/// Baldosa individual. NO es un NetworkObject.
-/// El SueloController le asigna el índice al arrancar.
-/// Guarda su color original para poder restaurarlo al resetear.
-/// </summary>
 public class Tile : MonoBehaviour
 {
     [HideInInspector]
@@ -13,31 +9,36 @@ public class Tile : MonoBehaviour
     private Renderer render;
     private Material materialInstancia;
 
-    // Color original del prefab, capturado en Awake.
-    private Color colorOriginal;
-
     private void Awake()
     {
         render = GetComponent<Renderer>();
+
         if (render != null)
         {
             materialInstancia = render.material;
-            colorOriginal = materialInstancia.color;
+            RestaurarColorOriginal();
         }
     }
 
+    // Cuando un jugador pinta la baldosa
     public void EstablecerColor(Color32 color)
     {
-        if (materialInstancia != null)
-            materialInstancia.color = color;
+        if (materialInstancia == null) return;
+
+        Color nuevoColor = color;
+        nuevoColor.a = 1f;
+
+        materialInstancia.color = nuevoColor;
     }
 
-    /// <summary>
-    /// Restaura el color original del prefab.
-    /// </summary>
+    // Cuando la baldosa está sin pintar
     public void RestaurarColorOriginal()
     {
-        if (materialInstancia != null)
-            materialInstancia.color = colorOriginal;
+        if (materialInstancia == null) return;
+
+        Color transparente = materialInstancia.color;
+        transparente.a = 0f;
+
+        materialInstancia.color = transparente;
     }
 }
