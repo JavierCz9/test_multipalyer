@@ -191,7 +191,7 @@ public class SueloController : NetworkBehaviour
         Vector2Int celda = celdas[Random.Range(0, celdas.Count)];
         Tile tile = tilesPorCelda[celda];
 
-        return tile.transform.position + Vector3.up * 0.5f;
+        return tile.transform.position + Vector3.up * 1f;
     }
 
     public void ResetearTodasLasTiles()

@@ -1,0 +1,185 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &224589440585509690
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5429175894596681132}
+  - component: {fileID: 6974651351188847019}
+  - component: {fileID: 5939088588336891750}
+  - component: {fileID: 8754539990294465425}
+  m_Layer: 0
+  m_Name: ItemBotella
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5429175894596681132
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 224589440585509690}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0.33408755, y: 0.5591373, z: 0.26236853, w: 0.7119788}
+  m_LocalPosition: {x: 0.92456746, y: 1.9867069, z: 19.51651}
+  m_LocalScale: {x: 1.2, y: 1.2, z: 1.2}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 8731722817429901948}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: -50.276, y: 76.287, z: 0}
+--- !u!136 &6974651351188847019
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 224589440585509690}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.5
+  m_Height: 1
+  m_Direction: 1
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &5939088588336891750
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 224589440585509690}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 2799370222
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  m_InScenePlacedDisabledByDefault: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  m_InScenePlaced: 0
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 0
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
+--- !u!114 &8754539990294465425
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 224589440585509690}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2598dfa8935e4e241a0524ca5d7696ea, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ItemRalentizador
+  ShowTopMostFoldoutHeaderGroup: 1
+  multiplicadorRalentizacion: 0.2
+  duracionEfecto: 4
+--- !u!1001 &9126534606263711127
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 5429175894596681132}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -0.13899788
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.3604939
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0.099084616
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7602234
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.6496618
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.000000014901161
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0.00000008940697
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -81.032
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      propertyPath: m_Name
+      value: botella3d
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 7204573594058038729}
+  m_SourcePrefab: {fileID: 100100000, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+--- !u!1 &8243451056074606790 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+  m_PrefabInstance: {fileID: 9126534606263711127}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &7204573594058038729
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8243451056074606790}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7fc78085078181c4f88ebe4a506b68d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RotarItem
+  velocidadGiro: 90
+--- !u!4 &8731722817429901948 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 4ee14c5c58526754ca9c99b9325bc873, type: 3}
+  m_PrefabInstance: {fileID: 9126534606263711127}
+  m_PrefabAsset: {fileID: 0}
