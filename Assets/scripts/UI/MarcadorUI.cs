@@ -20,9 +20,7 @@ public class MarcadorUI : MonoBehaviour
 
     private void Start()
     {
-        // Ocultar hasta que arranque la partida.
-        if (panelMarcador != null)
-            panelMarcador.SetActive(false);
+        
 
         // Suscribirse cuando el GameManager esté listo.
         if (GameManager.Instance != null)
