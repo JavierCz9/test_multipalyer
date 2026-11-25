@@ -1,3 +1,4 @@
+using System.Collections;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine;
@@ -6,6 +7,8 @@ using UnityEngine.SceneManagement;
 
 public class ResultadoUI : MonoBehaviour
 {
+    public static ResultadoUI Instance;
+
     [Header("Referencias")]
     public GameObject panelResultado;
     public TextMeshProUGUI textoGanador;
@@ -15,6 +18,18 @@ public class ResultadoUI : MonoBehaviour
     [Header("Botones")]
     public Button botonVolverAlLobby; // Solo lo usará el Host
     public Button botonVolverAlMenu;  // Lo usan ambos
+
+    [Header("Reacción Bien Jugado")]
+    public Button botonBienJugado;
+    public TextMeshProUGUI textoReaccion;
+    public float duracionMensaje = 2.5f;
+
+    private Coroutine rutinaOcultarReaccion;
+
+    private void Awake()
+    {
+        Instance = this;
+    }
 
     private void Start()
     {
@@ -29,6 +44,9 @@ public class ResultadoUI : MonoBehaviour
 
         if (botonVolverAlMenu != null)
             botonVolverAlMenu.onClick.AddListener(OnClickVolverAlMenu);
+
+        if (botonBienJugado != null)
+            botonBienJugado.onClick.AddListener(OnClickBienJugado);
 
         if (GameManager.Instance != null)
         {
@@ -55,6 +73,13 @@ public class ResultadoUI : MonoBehaviour
             bool esHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
             botonVolverAlLobby.gameObject.SetActive(esHost);
         }
+
+        // Habilitar el botón de reacción al abrir el panel
+        if (botonBienJugado != null)
+            botonBienJugado.interactable = true;
+
+        if (textoReaccion != null)
+            textoReaccion.gameObject.SetActive(false);
 
         // ✅ Lógica visual para mostrar si es empate o victoria
         if (textoGanador != null)
@@ -108,6 +133,60 @@ public class ResultadoUI : MonoBehaviour
         if (textoGanador != null) { textoGanador.text = ""; textoGanador.color = Color.white; }
         if (textoCantidad != null) textoCantidad.text = "";
         if (iconoGanador != null) iconoGanador.enabled = false;
+
+        if (rutinaOcultarReaccion != null)
+        {
+            StopCoroutine(rutinaOcultarReaccion);
+            rutinaOcultarReaccion = null;
+        }
+
+        if (textoReaccion != null)
+        {
+            textoReaccion.text = "";
+            textoReaccion.gameObject.SetActive(false);
+        }
+    }
+
+    private void OnClickBienJugado()
+    {
+        if (botonBienJugado != null)
+            botonBienJugado.interactable = false;
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.EnviarReaccionBienJugado();
+    }
+
+    public void MostrarMensajeBienJugado(byte colorId)
+    {
+        if (textoReaccion == null) return;
+
+        textoReaccion.gameObject.SetActive(true);
+
+        if (colorId > 0)
+        {
+            textoReaccion.text = $"Jugador {colorId}: ¡BIEN JUGADO!";
+            textoReaccion.color = PlayerPalette.Obtener(colorId);
+        }
+        else
+        {
+            textoReaccion.text = "¡BIEN JUGADO!";
+            textoReaccion.color = Color.white;
+        }
+
+        if (rutinaOcultarReaccion != null)
+            StopCoroutine(rutinaOcultarReaccion);
+
+        rutinaOcultarReaccion = StartCoroutine(OcultarMensajeTrasEspera());
+    }
+
+    private IEnumerator OcultarMensajeTrasEspera()
+    {
+        yield return new WaitForSeconds(duracionMensaje);
+
+        if (textoReaccion != null)
+            textoReaccion.gameObject.SetActive(false);
+
+        rutinaOcultarReaccion = null;
     }
 
     private void OnClickVolverAlLobby()

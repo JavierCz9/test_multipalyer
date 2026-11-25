@@ -27,13 +27,13 @@ public class PlayerController : NetworkBehaviour
     {
         rb = GetComponent<Rigidbody>();
         if (rb != null)
-       
+
         {
             rb.isKinematic = !IsOwner;
 
             if (IsOwner)
                 rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-        }       
+        }
         ColorId.OnValueChanged += AlCambiarColor;
 
         if (IsOwner)

@@ -67,7 +67,7 @@ public class GameManager : NetworkBehaviour
 
         Debug.Log("[GameManager] Iniciando partida en la GameScene");
 
-        // ✅ Limpiamos la memoria del ganador anterior para que el panel no aparezca
+        // Limpiamos la memoria del ganador anterior para que el panel no aparezca
         EventosJuego.LimpiarGanador();
 
         for (int i = 0; i < contadoresPorColor.Count; i++)
@@ -191,6 +191,44 @@ public class GameManager : NetworkBehaviour
     {
         Debug.Log($"🏆 [GANADOR] Color {colorGanador} con {baldosas} tiles");
         EventosJuego.PublicarGanador(colorGanador, baldosas);
+    }
+
+    
+    // REACCIÓN "BIEN JUGADO" (RPC)
+   
+
+    public void EnviarReaccionBienJugado()
+    {
+        if (EstadoActual.Value != GameState.Finalizado) return;
+        SolicitarBienJugadoRpc();
+    }
+
+    [Rpc(SendTo.Server)]
+    private void SolicitarBienJugadoRpc(RpcParams rpcParams = default)
+    {
+        if (EstadoActual.Value != GameState.Finalizado) return;
+
+        ulong senderId = rpcParams.Receive.SenderClientId;
+        byte colorJugador = 0;
+
+        
+        if (NetworkManager.Singleton.ConnectedClients.TryGetValue(senderId, out var client) &&
+            client.PlayerObject != null &&
+            client.PlayerObject.TryGetComponent<PlayerController>(out var playerCtrl))
+        {
+            colorJugador = playerCtrl.ColorId.Value;
+        }
+
+        MostrarBienJugadoRpc(colorJugador);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void MostrarBienJugadoRpc(byte colorId)
+    {
+        if (ResultadoUI.Instance != null)
+        {
+            ResultadoUI.Instance.MostrarMensajeBienJugado(colorId);
+        }
     }
 
     public void VolverAlLobby()
